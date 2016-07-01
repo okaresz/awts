@@ -4,7 +4,7 @@
 #include <QMainWindow>
 #include <QDockWidget>
 
-class SimViewWidget;
+class SimulatorView;
 
 class MainWindow : public QMainWindow
 {
@@ -19,7 +19,7 @@ public slots:
 private:
     QDockWidget *paramsDock;
     QWidget *paramsWidget;
-    SimViewWidget *simView;
+    SimulatorView *simView;
 };
 
 #endif // MAINWINDOW_H

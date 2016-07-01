@@ -1,7 +1,6 @@
-#include "mainwindow.h"
+#include "MainWindow.h"
 #include <QVBoxLayout>
 #include <QLabel>
-#include "simviewwidget.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
 {   
@@ -16,9 +15,4 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     paramsDock->setAllowedAreas( Qt::AllDockWidgetAreas );
     paramsDock->setWidget(paramsWidget);
     addDockWidget( Qt::RightDockWidgetArea, paramsDock );
-
-    // Simulation view
-    simView = new SimViewWidget(this);
-    setCentralWidget(simView);
-    simView->update();
 }
