@@ -13,7 +13,10 @@ SOURCES += main.cpp \
     RoadSegment.cpp \
     RandGen.cpp \
     Simulator.cpp \
-    SimulatorView.cpp
+    SimulatorView.cpp \
+    CarDriver.cpp \
+    Car.cpp \
+    RoadObstacle.cpp
 
 HEADERS += \
     RoadGenerator.h \
@@ -22,7 +25,10 @@ HEADERS += \
     RoadSegment.h \
     RandGen.h \
     Simulator.h \
-    SimulatorView.h
+    SimulatorView.h \
+    CarDriver.h \
+    Car.h \
+    RoadObstacle.h
 
 DISTFILES += \
     images/car.png \

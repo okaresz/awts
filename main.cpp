@@ -13,15 +13,15 @@ int main(int argc, char *argv[])
 	// Create simulator
 	Simulator sim;
 
-    MainWindow mainWin;
-    mainWin.setWindowTitle( app.applicationName() );
-
 	// Simulation view
 	SimulatorView *simView = new SimulatorView(&sim);
-	mainWin.setCentralWidget(simView);
-	simView->update();
+
+	// main window
+	MainWindow mainWin(simView);
+    mainWin.setWindowTitle( app.applicationName() );
 
     mainWin.show();
+	simView->update();
 
 	sim.start();
 

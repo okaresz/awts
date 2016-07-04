@@ -6,24 +6,7 @@
 RoadSegment::RoadSegment(double odoStartLoc, QObject *parent) : QObject(parent),
 	mOdoStartLoc(odoStartLoc)
 {
-	// init default settings
-	if( !SettingsManager::instance()->contains( "road/straightVsBendSegmentProbability") )
-		{ SettingsManager::instance()->setValue("road/straightVsBendSegmentProbability", 0.65); }
-
-	if( !SettingsManager::instance()->contains( "road/bendMinRadiusM") )
-		{ SettingsManager::instance()->setValue("road/bendMinRadiusM", 30.0); }
-	if( !SettingsManager::instance()->contains( "road/bendMaxRadiusM") )
-		{ SettingsManager::instance()->setValue("road/bendMaxRadiusM", 400.0); }
-	if( !SettingsManager::instance()->contains("road/bendMaxTurnDegree") )
-		{ SettingsManager::instance()->setValue("road/bendMaxTurnDegree", 160.0); }
-
-	if( !SettingsManager::instance()->contains( "road/segmentMinLengthM") )
-		{ SettingsManager::instance()->setValue("road/segmentMinLengthM", 30.0); }
-	if( !SettingsManager::instance()->contains( "road/segmentMaxLengthM") )
-		{ SettingsManager::instance()->setValue("road/segmentMaxLengthM", 400.0); }
-
-	if( !SettingsManager::instance()->contains("road/defaultWidthM") )
-		{ SettingsManager::instance()->setValue("road/defaultWidthM", 10.0); }
+	initSettings();
 
 	mLength = RandGen::instance()->generateF( SettingsManager::instance()->value("road/segmentMinLengthM").toDouble(), SettingsManager::instance()->value("road/segmentMaxLengthM").toDouble() );
 	mStartWidth = mEndWidth = SettingsManager::instance()->value("road/defaultWidthM").toDouble();
@@ -44,7 +27,20 @@ RoadSegment::RoadSegment(double odoStartLoc, QObject *parent) : QObject(parent),
 		if( RandGen::instance()->generateF() > 0.5 ) { mRadius *= -1; }
 	}
 
-	qDebug() << QString("Road segment created ( L=%1, R=%2 )").arg( mLength ).arg(mRadius);
+	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mOdoStartLoc).arg( mLength ).arg(mRadius);
+}
+
+RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth, QObject *parent) : QObject(parent),
+	mOdoStartLoc(odoStartLoc), mRadius(radius), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
+{
+	initSettings();
+	if( mRadius != 0 )
+	{
+		double maxTurnRad = SettingsManager::instance()->value("road/bendMaxTurnDegree").toDouble() / 180.0 * M_PI;
+		if( maxTurnRad * fabs(mRadius) < mLength )
+			{ mLength = maxTurnRad * mRadius; }
+	}
+	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mOdoStartLoc).arg( mLength ).arg(mRadius);
 }
 
 double RoadSegment::length() const
@@ -52,7 +48,29 @@ double RoadSegment::length() const
 	return mLength;
 }
 
-double RoadSegment::getWidthAt(const double metersFromSegmentStart) const
+double RoadSegment::widthAt(const double metersFromSegmentStart) const
 {
 	return mStartWidth + (mEndWidth-mStartWidth) * (metersFromSegmentStart/mLength);
+}
+
+void RoadSegment::initSettings()
+{
+	// init default settings
+	if( !SettingsManager::instance()->contains( "road/straightVsBendSegmentProbability") )
+		{ SettingsManager::instance()->setValue("road/straightVsBendSegmentProbability", 0.65); }
+
+	if( !SettingsManager::instance()->contains( "road/bendMinRadiusM") )
+		{ SettingsManager::instance()->setValue("road/bendMinRadiusM", 30.0); }
+	if( !SettingsManager::instance()->contains( "road/bendMaxRadiusM") )
+		{ SettingsManager::instance()->setValue("road/bendMaxRadiusM", 400.0); }
+	if( !SettingsManager::instance()->contains("road/bendMaxTurnDegree") )
+		{ SettingsManager::instance()->setValue("road/bendMaxTurnDegree", 160.0); }
+
+	if( !SettingsManager::instance()->contains( "road/segmentMinLengthM") )
+		{ SettingsManager::instance()->setValue("road/segmentMinLengthM", 30.0); }
+	if( !SettingsManager::instance()->contains( "road/segmentMaxLengthM") )
+		{ SettingsManager::instance()->setValue("road/segmentMaxLengthM", 400.0); }
+
+	if( !SettingsManager::instance()->contains("road/defaultWidthM") )
+		{ SettingsManager::instance()->setValue("road/defaultWidthM", 10.0); }
 }
