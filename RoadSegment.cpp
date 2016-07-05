@@ -3,7 +3,7 @@
 #include "RandGen.h"
 #include <QDebug>
 
-RoadSegment::RoadSegment(double odoStartLoc, QObject *parent) : QObject(parent),
+RoadSegment::RoadSegment(double odoStartLoc) :
 	mOdoStartLoc(odoStartLoc)
 {
 	initSettings();
@@ -30,10 +30,11 @@ RoadSegment::RoadSegment(double odoStartLoc, QObject *parent) : QObject(parent),
 	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mOdoStartLoc).arg( mLength ).arg(mRadius);
 }
 
-RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth, QObject *parent) : QObject(parent),
+RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth) :
 	mOdoStartLoc(odoStartLoc), mRadius(radius), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
 {
 	initSettings();
+
 	if( mRadius != 0 )
 	{
 		double maxTurnRad = SettingsManager::instance()->value("road/bendMaxTurnDegree").toDouble() / 180.0 * M_PI;
@@ -41,6 +42,15 @@ RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, doubl
 			{ mLength = maxTurnRad * mRadius; }
 	}
 	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mOdoStartLoc).arg( mLength ).arg(mRadius);
+}
+
+RoadSegment::RoadSegment(const RoadSegment &other)
+{
+	mOdoStartLoc = other.odoStartLoc();
+	mRadius = other.radius();
+	mLength = other.length();
+	mStartWidth = other.startWidth();
+	mEndWidth = other.endWidth();
 }
 
 double RoadSegment::length() const

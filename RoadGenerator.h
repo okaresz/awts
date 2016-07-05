@@ -10,10 +10,10 @@ class RoadGenerator : public QObject
 {
     Q_OBJECT
 public:
-	explicit RoadGenerator(double roadVisibilityM, QObject *parent = 0);
+	explicit RoadGenerator(double roadVisibility, QObject *parent = 0);
 
-	void setRoadVisibility(double roadVisibilityM)
-		{ mRoadVisibilityM = roadVisibilityM; }
+	void setRoadGenerationHorizon(double roadGenerationHorizon)
+		{ mRoadGenerationHorizon = roadGenerationHorizon; }
 
 signals:
 
@@ -26,6 +26,10 @@ public slots:
 	double lengthAhead(double simOdometer ) const;
 	/// Get the location of the end of the generated road.
 	double endOfRoad() const;
+
+	QQueue<RoadSegment> visibleRoad(const double odometer) const;
+
+	const QQueue<RoadObstacle> visibleObstacles(const double odometer) const;
 
 	const QQueue<RoadSegment*> *segments() const
 		{ return &mSegmentQueue; }
@@ -40,7 +44,8 @@ public slots:
 private:
 	void deleteObstaclesBefore(double odoMark);
 
-	double mRoadVisibilityM;
+	double mRoadGenerationHorizon;
+	double mRoadVisibility;
 	QQueue<RoadSegment*> mSegmentQueue;
 	QQueue<RoadObstacle*> mObstacleQueue;
 };

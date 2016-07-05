@@ -3,8 +3,8 @@
 #include "RandGen.h"
 #include <QDebug>
 
-RoadGenerator::RoadGenerator(double roadVisibilityM, QObject *parent) : QObject(parent),
-	mRoadVisibilityM(roadVisibilityM)
+RoadGenerator::RoadGenerator(double roadVisibility, QObject *parent) : QObject(parent),
+	mRoadGenerationHorizon(roadVisibility), mRoadVisibility(roadVisibility)
 {
 	if( !SettingsManager::instance()->contains("road/obstacleprobabilityPerMeter") )
 		{ SettingsManager::instance()->setValue("road/obstacleprobabilityPerMeter", 0.005); }
@@ -45,14 +45,14 @@ void RoadGenerator::simUpdate(const quint64 simTime, const double simOdometer)
 	// delete already left-behind segments
 	if( !mSegmentQueue.isEmpty() && mSegmentQueue.first()->odoEndLoc() < simOdometer )
 	{
-		mSegmentQueue.dequeue()->deleteLater();
+		delete mSegmentQueue.dequeue();
 	}
 
 	// delete already left-behind obstacles
 	deleteObstaclesBefore(simOdometer);
 
-	qDebug() << "#Road obstacle count = " << mObstacleQueue.size();
-	qDebug() << "#Road segment count = " << mSegmentQueue.size();
+	qInfo() << "#Road obstacle count = " << mObstacleQueue.size();
+	qInfo() << "#Road segment count = " << mSegmentQueue.size();
 }
 
 double RoadGenerator::lengthAhead(double simOdometer) const
@@ -69,6 +69,40 @@ double RoadGenerator::endOfRoad() const
 		{ return 0.0; }
 
 	return mSegmentQueue.last()->odoStartLoc() + mSegmentQueue.last()->length();
+}
+
+QQueue<RoadSegment> RoadGenerator::visibleRoad(const double odometer) const
+{
+	double horizon = odometer + mRoadVisibility;
+	QQueue<RoadSegment> visibleRoad;
+	for( int i=0; i<mSegmentQueue.size(); i++ )
+	{
+		RoadSegment *seg = mSegmentQueue.at(i);
+		if( seg->odoStartLoc() < horizon )
+		{
+			if( seg->odoEndLoc() > odometer )
+			{
+				double visibleLength = seg->length();
+				if( seg->odoEndLoc() > horizon )
+					{ visibleLength = horizon - seg->odoStartLoc(); }
+				visibleRoad.enqueue( RoadSegment( seg->odoStartLoc(), seg->radius(), visibleLength, seg->startWidth(), seg->widthAt(visibleLength) ) );
+			}
+		}
+		else break;
+	}
+	return visibleRoad;	// let the compiler do the return value optimization
+}
+
+const QQueue<RoadObstacle> RoadGenerator::visibleObstacles(const double odometer) const
+{
+	double horizon = odometer + mRoadVisibility;
+	QQueue<RoadObstacle> visibleObstacles;
+	for( int i=0; i<mObstacleQueue.size(); i++ )
+	{
+		if( mObstacleQueue.at(i)->odoPos() < horizon )
+			{ visibleObstacles.enqueue( *mObstacleQueue.at(i) ); }
+	}
+	return visibleObstacles;	// let the compiler do the return value optimization
 }
 
 const RoadSegment *RoadGenerator::segmentAtOdo(double odometerVal)
@@ -98,5 +132,5 @@ const RoadSegment *RoadGenerator::nextBend(double odometerVal)
 void RoadGenerator::deleteObstaclesBefore(double odoMark)
 {
 	while( !mObstacleQueue.isEmpty() && mObstacleQueue.first()->odoPos() < odoMark )
-		{ mObstacleQueue.dequeue()->deleteLater(); }
+		{ delete mObstacleQueue.dequeue(); }
 }

@@ -18,6 +18,7 @@ signals:
 public slots:
 	void onSimUpdated();
 	void updateSpeedDisplay(double speedKmh);
+	void pixelPerMeterChanged(double newVal);
 
 private slots:
 	void pxPerMeterChangeReqInt( int sliderVal );

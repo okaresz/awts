@@ -14,7 +14,7 @@ Simulator::Simulator(QObject *parent) : QObject(parent),
 		{ SettingsManager::instance()->setValue("simulation/visibleRoadAheadM", 50.0); }
 	else
 		{ mRoadVisibility = SettingsManager::instance()->value("simulation/visibleRoadAheadM").toDouble(); }
-	mRoadGen.setRoadVisibility(mRoadVisibility);
+	mRoadGen.setRoadGenerationHorizon(mRoadVisibility);
 
 	connect( &mSimTimer, SIGNAL(timeout()), this, SLOT(simUpdate()) );
 }

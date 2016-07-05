@@ -1,10 +1,16 @@
 #include "SimulatorView.h"
 #include <QPaintEvent>
 #include <QPainter>
+#include "SettingsManager.h"
 
 SimulatorView::SimulatorView(Simulator *simulator, QWidget *parent) : QWidget(parent),
-	mSimulator(simulator), mPixelPerMeter(5.0)
+	mSimulator(simulator), mPixelPerMeter(6.0)
 {
+	if( !SettingsManager::instance()->contains("simulatorView/defaultPixelPerMeter") )
+		{ SettingsManager::instance()->setValue("simulatorView/defaultPixelPerMeter", mPixelPerMeter); }
+	else
+		{ mPixelPerMeter = SettingsManager::instance()->value("simulatorView/defaultPixelPerMeter").toDouble(); }
+
     setMinimumSize(QSize(400,400));
 	connect( simulator, SIGNAL(simUpdated()), this, SLOT(update()) );
 }
@@ -17,103 +23,6 @@ void SimulatorView::setPixelPerMeter(double pxPerM)
 		update();
 	}
 }
-
-// old paint
-//void SimulatorView::paintEvent(QPaintEvent *event)
-//{
-//	Q_UNUSED(event);
-
-//	double odometer = mSimulator->car()->odometer();
-//	const double visibilityM = mSimulator->roadVisibility();
-
-//	// init painting
-//    QPainter painter;
-//    painter.begin(this);
-//    painter.setRenderHint(QPainter::Antialiasing);
-
-//	QSize viewPortSize(size());
-
-//    // background
-//	//painter.fillRect(event->rect(), QBrush(Qt::white));
-//	painter.fillRect(QRect(0,0,viewPortSize.width(),viewPortSize.height()), QBrush(Qt::white));
-
-//	// ---------------------
-//	QPointF carCenter(viewPortSize.width()/2,viewPortSize.height()-10);
-//	painter.translate( carCenter );
-//	carCenter = QPointF(0.0,0.0);
-
-//	/* PAINT ROAD SEGMENTS
-//	* these are painted per segment, coord sys transformed before very segment
-//	* so that segment drawing can take place with no rotation*/
-//	painter.save();
-
-//	painter.scale(mPixelPerMeter, mPixelPerMeter);
-
-//	const RoadSegment *segment;
-//	double endTangent = M_PI_2;
-//	QPointF endPoint(carCenter);
-//	for( int i=0; i<mSimulator->roadGen()->segments()->size(); i++ )
-//	{
-//		segment = mSimulator->roadGen()->segments()->at(i);
-
-//		// calculate segment length to draw, based on current car position (odometer) and road visibility range
-//		if( segment->odoEndLoc() <= odometer )
-//			{ continue; }	// segment left behind
-
-//		//double posOnSegment = 1 - (segment->odoEndLoc() - odometer) / segment->length();
-//		double posOnSegment = ( odometer - segment->odoStartLoc() ) / segment->length();
-//		if( posOnSegment < 0 )	// negative means this is a future segment, should be drawn fully
-//			{ posOnSegment = 0; }
-//		double drawnLength = segment->length()*(1-posOnSegment);
-
-
-//		double segmentLengthOverVisibility = segment->odoStartLoc() + segment->length() - (odometer + visibilityM);
-//		if( segmentLengthOverVisibility > 0 )
-//			{ drawnLength -= segmentLengthOverVisibility; }
-//		if( drawnLength <= 0 )
-//			{ break; }
-
-//		/* transform the coordinate system to the segment end (next segment start)
-//		* and rotate so that current road tangent points always "upward"
-//		* (because arc drawing begins at zero degrees, going anti-clockwise)*/
-//		painter.translate(endPoint);
-//		painter.rotate(90-endTangent/M_PI*180.0);
-
-//		QPainterPath roadPath;
-//		if( !segment->isBend() )
-//		{
-//			roadPath.lineTo( QPointF(0,-drawnLength ) );
-//		}
-//		else
-//		{
-//			QRectF arcBounds;
-//			QPointF startPos = QPointF(0,0);
-//			arcBounds.setBottomRight(QPointF(startPos.x(),startPos.y()+fabs(segment->radius())));
-//			arcBounds.setTopLeft(QPointF(startPos.x()-segment->radius()*2,startPos.y()-fabs(segment->radius())));
-//			roadPath.arcTo( arcBounds, 0.0, drawnLength/fabs(segment->radius())/M_PI*180.0 );
-
-//		}
-//		endTangent = roadPath.angleAtPercent(1)/180.0*M_PI;
-//		endPoint = roadPath.currentPosition();
-
-//		QPen roadPen;
-//		roadPen.setWidth(segment->widthAt(0));
-//		roadPen.setColor(QColor(200, 200, 200));
-//		//roadPen.setStyle(Qt::DashLine);
-//		//roadPen.setDashOffset(odometer/mPixelPerMeter);
-//		painter.setPen(roadPen);
-//		painter.drawPath(roadPath);
-
-
-//	}
-//	painter.restore();
-//	// END OF ROAD PAINTING
-
-//	// car
-//	paintCar( &painter, carCenter, QSize(1.6*mPixelPerMeter,4*mPixelPerMeter) );
-
-//	painter.end();
-//}
 
 void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, double paintFromNormalPos, double paintToNormalPos , QPointF &endPoint, double &endTangent)
 {
@@ -275,13 +184,13 @@ void SimulatorView::paintRoadObstaclesOnSegment(QPainter *painter, const RoadGen
 		if( segment->isBend() )
 		{
 			double gamma = obstaclePosAlongPathFromOrigin / segment->radiusAbs();
-			double obstacleRadius = segment->radius() + obst->crossPos()*(segment->widthAt(obstaclePosAlongPathFromOrigin)/2);	// signed! (sign of roadRadius determines the sign of the obstacle X coord)
+			double obstacleRadius = segment->radius() + obst->normalPos()*(segment->widthAt(obstaclePosAlongPathFromOrigin)/2);	// signed! (sign of roadRadius determines the sign of the obstacle X coord)
 			obstaclePos.setX( -segment->radius() + obstacleRadius * cos(gamma) );
 			obstaclePos.setY( -fabs(obstacleRadius) * sin(gamma) );
 		}
 		else
 		{
-			obstaclePos.setX( obst->crossPos() * (segment->widthAt(obstaclePosAlongPathFromOrigin)/2) );
+			obstaclePos.setX( obst->normalPos() * (segment->widthAt(obstaclePosAlongPathFromOrigin)/2) );
 			obstaclePos.setY( -obstaclePosAlongPathFromOrigin );
 		}
 

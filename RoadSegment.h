@@ -1,18 +1,16 @@
 #ifndef ROADSEGMENT_H
 #define ROADSEGMENT_H
 
-#include <QObject>
+#include <QtGlobal>
 
-class RoadSegment : public QObject
+class RoadSegment
 {
-    Q_OBJECT
 public:
-	explicit RoadSegment( double odoStartLoc, QObject *parent = 0);
-	RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth, QObject *parent = 0);
+	RoadSegment(double odoStartLoc);
+	RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth);
+	RoadSegment( const RoadSegment &other );
 
-signals:
-
-public slots:
+public:
 	/** Get segment length along the centerline.
 	 *  return The length in meters.*/
 	double length() const;
@@ -21,7 +19,7 @@ public slots:
 		{ return mRadius; }
 	/// Get the absolute value of the segment radius
 	double radiusAbs() const
-		{ return fabs(mRadius); }
+		{ return qAbs(mRadius); }
 	bool isBend() const
 		{ return mRadius != 0.0; }
 	/** Get segment width at given point.
@@ -32,6 +30,10 @@ public slots:
 	double odoEndLoc() const
 		{ return mOdoStartLoc+mLength; }
 
+	double startWidth() const
+		{ return mStartWidth; }
+	double endWidth() const
+		{ return mEndWidth; }
 private:
 	void initSettings();
 

@@ -13,7 +13,11 @@ public:
 	Simulator *simulator() const
 		{ return mSimulator; }
 
+	double pixelPerMeter() const
+		{ return mPixelPerMeter; }
+
 signals:
+	void pixelPerMeterChanged(double val);
 
 public slots:
 	void setPixelPerMeter( double pxPerM );

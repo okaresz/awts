@@ -35,7 +35,14 @@ void MainWindow::updateSpeedDisplay(double speedKmh)
 {
 	QLabel *speedMeter = mDashboardWidget->findChild<QLabel*>("speedMeter");
 	if( speedMeter )
-		{ speedMeter->setText( QString("Speed: %1 km/h").arg(speedKmh) ); }
+	{ speedMeter->setText( QString("Speed: %1 km/h").arg(speedKmh) ); }
+}
+
+void MainWindow::pixelPerMeterChanged(double newVal)
+{
+	QSlider *pxPerMeterSlider = mParamsWidget->findChild<QSlider*>("pxPerMeterSlider");
+	if( pxPerMeterSlider )
+		{ pxPerMeterSlider->setValue( (int)(newVal*10) ); }
 }
 
 void MainWindow::onSimUpdated()
@@ -94,9 +101,10 @@ void MainWindow::buildParamsWidget()
 	pxPerMeterLabel->setText(tr("px/m"));
 	simGroup->layout()->addWidget(pxPerMeterLabel);
 	QSlider *pxPerMeterSlider = new QSlider(Qt::Horizontal, mParamsWidget);
+	pxPerMeterSlider->setObjectName("pxPerMeterSlider");
 	pxPerMeterSlider->setMinimum(1);
 	pxPerMeterSlider->setMaximum(500);
-	pxPerMeterSlider->setValue(10);
+	pxPerMeterSlider->setValue((int)(mSimView->pixelPerMeter()*10));
 	connect( pxPerMeterSlider, &QSlider::valueChanged, this, &MainWindow::pxPerMeterChangeReqInt );
 	simGroup->layout()->addWidget(pxPerMeterSlider);
 
@@ -115,6 +123,8 @@ void MainWindow::buildParamsWidget()
 	connect( cruiseSpeedSpinbox, SIGNAL(valueChanged(double)), this, SLOT(cruiseSpeedValueChanged(double)) );
 	cruiseSpeedLayout->addWidget(cruiseSpeedSpinbox);
 	paramsLayout->addLayout(cruiseSpeedLayout);
+
+	paramsLayout->addStretch();
 }
 
 void MainWindow::buildDashboardWidget()
@@ -145,4 +155,6 @@ void MainWindow::buildDashboardWidget()
 	maxAccelRatioSlider->setValue(0);
 	connect( this, SIGNAL(updateMaxAccelRatioDisplay(int)), maxAccelRatioSlider, SLOT(setValue(int)) );
 	dashboardLayout->addWidget(maxAccelRatioSlider);
+
+	dashboardLayout->addStretch();
 }

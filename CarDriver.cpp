@@ -1,14 +1,20 @@
 #include "CarDriver.h"
 #include <QDebug>
+#include <QLineF>
+
+const double CarDriver::obstacleAvoidanceDistance = 0.5;
 
 CarDriver::CarDriver(Car *car, RoadGenerator *roadGen, QObject *parent) : QObject(parent),
-	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed)
+	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed), mCarCrossPos(0)
 {
 
 }
 
 void CarDriver::simUpdate(const quint64 simTime)
 {
+	/* TRAJECTORY KEEPING
+	 * warning: if you cut off from the beginning of a trajectory segment, set startPos accordingly!*/
+
 	/* SPEED CONTROL.
 	 * Algorithm: the following wequence is followed:
 	 * 0. target speed is cruiseSpeed
@@ -18,7 +24,6 @@ void CarDriver::simUpdate(const quint64 simTime)
 	 * 2. check if target speed is not greater than current max possible speed to stay on the road if we are on a bend.
 	 * 3. try to reach target speed, calculate acceleration for that, and limit it by the forces resulting on the current bend if we are on one.
 	 * 4. give the acceleration value to car to do he acceleration.*/
-
 
 	// some facts
 	double currentSpeed = mCar->speed();
@@ -32,19 +37,20 @@ void CarDriver::simUpdate(const quint64 simTime)
 	else
 		{ maxTangentialAccel = sqrt( pow(maxAccelAllowedByFriction,2) - pow(centripetalAccel,2) ); }
 	if( maxTangentialAccel < 0.05 )
-		{ qDebug() << "Max tangential accel is too low! (" << maxTangentialAccel << ") Cant slow down!"; }
+		{ qWarning() << "Max tangential accel is too low! (" << maxTangentialAccel << ") Cant slow down!"; }
 	double maxSafeTangentialAccel = maxTangentialAccel * maxTangentialAccelHeadroomFactor;
 	double bendSpeedHeadroomFactor = 0.8; // with full speed in bend, there can be no deceleration due to net force being already at maximum allowed by friction
-	qDebug() << "centripAcc=" << centripetalAccel;
-	qDebug() << "sumAcc=" << currentNetAccel();
-	qDebug() << "speed=" << currentSpeed*3.6;
+	double extraDecelDistanceForNextBend = 5.0;	// extra distance to add to decelDistance -> start braking sooner
+	qInfo() << "centripAcc=" << centripetalAccel;
+	qInfo() << "sumAcc=" << currentNetAccel();
+	qInfo() << "speed=" << currentSpeed*3.6;
 
 	// calc speed for next bend, decide if we should start decelerating
 	const RoadSegment *nextBend = mRoadGen->nextBend( mCar->odometer() );
 	static RoadSegment *lastCalculatedNextBend;
 	if( nextBend /*&& nextBend != lastCalculatedNextBend*/ )
 	{
-		qDebug() << "Calc speed for next bend (@" << nextBend->odoStartLoc() << ")";
+		qInfo() << "Calc speed for next bend (@" << nextBend->odoStartLoc() << ")";
 		lastCalculatedNextBend = (RoadSegment*)nextBend;
 		double maxSpeedForNextBend = sqrt( maxAccelAllowedByFriction * nextBend->radiusAbs() );
 		double maxSafeSpeedForNextBend = maxSpeedForNextBend * bendSpeedHeadroomFactor;
@@ -52,7 +58,8 @@ void CarDriver::simUpdate(const quint64 simTime)
 		{
 			double decelTimeForNextBend = (currentSpeed-maxSafeSpeedForNextBend) / maxSafeTangentialAccel;
 			double decelDistanceForNextBend = currentSpeed*decelTimeForNextBend - maxSafeTangentialAccel * pow(decelTimeForNextBend,2) / 2; // minus, because deceleration
-			qDebug() << "\tdist2Next: " << nextBend->odoStartLoc()-odometer << ", maxSafeSpeed: " << maxSafeSpeedForNextBend*3.6 << ", decelDistance: " << decelDistanceForNextBend;
+			decelDistanceForNextBend += extraDecelDistanceForNextBend;
+			qInfo() << "\tdist2Next: " << nextBend->odoStartLoc()-odometer << ", maxSafeSpeed: " << maxSafeSpeedForNextBend*3.6 << ", decelDistance: " << decelDistanceForNextBend;
 
 			/// TODO: check if decelDistance is smaller than the available road ahead
 			/// TODO: set accelVal here?
@@ -60,17 +67,17 @@ void CarDriver::simUpdate(const quint64 simTime)
 			if( decelDistanceForNextBend >= (nextBend->odoStartLoc()-odometer) )
 			{
 				mTargetSpeed = maxSafeSpeedForNextBend;
-				qDebug() << "\tlimit speed NOW for next bend kmh: " << mTargetSpeed*3.6;
+				qInfo() << "\tlimit speed NOW for next bend kmh: " << mTargetSpeed*3.6;
 			}
 			else
 			{
-				qDebug() << "\tbend is still far ahead...";
+				qInfo() << "\tbend is still far ahead...";
 			}
 		}
 		else
 		{
 			mTargetSpeed = mCruiseSpeed;
-			qDebug() << "\tcurrent speed is OK for next bend, set cruise";
+			qInfo() << "\tcurrent speed is OK for next bend, set cruise";
 		}
 	}
 	else
@@ -83,16 +90,21 @@ void CarDriver::simUpdate(const quint64 simTime)
 	if( mTargetSpeed > currentMaxPossibleBendSpeed )
 	{
 		mTargetSpeed = currentMaxPossibleBendSpeed * bendSpeedHeadroomFactor;
-		qDebug() << "Limit target speed due to current bend to " << mTargetSpeed*3.6 << " km/h";
+		qInfo() << "Limit target speed due to current bend to " << mTargetSpeed*3.6 << " km/h";
 	}
 
 	// P control won't do -> next bend algorithm calculates with max tangential accel, so use that -> but now there is always acceleration....
-//	double speedControlP = 0.4;
-//	double speedError = mTargetSpeed-currentSpeed;
-//	double accelerateVal = speedError*speedControlP;
-	double accelerateVal = maxSafeTangentialAccel;
-	if( mTargetSpeed < currentSpeed )
-		{ accelerateVal *= -1; }
+	double speedControlP = 0.5;
+	double speedError = mTargetSpeed-currentSpeed;
+	double accelerateVal;
+	if( fabs(speedError) < 0.5 )
+		{ accelerateVal = speedError*speedControlP; }
+	else
+	{
+		accelerateVal = maxSafeTangentialAccel;
+		if( mTargetSpeed < currentSpeed )
+			{ accelerateVal *= -1; }
+	}
 
 	if( accelerateVal > maxSafeTangentialAccel )
 		{ accelerateVal = maxSafeTangentialAccel;	}
@@ -100,10 +112,123 @@ void CarDriver::simUpdate(const quint64 simTime)
 		{ accelerateVal = -maxSafeTangentialAccel;	}
 
 	// accelerate / decelerate
-	qDebug() << "Set acceleration: " << accelerateVal;
+	qInfo() << "Set acceleration: " << accelerateVal;
 	mCar->accelerate( accelerateVal );
 
-	qDebug() << "------------------------------------------------------";
+	qInfo() << "------------------------------------------------------";
+}
+
+void CarDriver::planTrajectory(double odometer)
+{
+	/* TRAJECTORY PLANNING
+	*  Start from the end of the current trajectory, and check if there is road ahead of trajectory.
+	*  If so, lengthen the trajectory or append a new section if another section type is needed.*/
+
+	QQueue<RoadSegment> visibleRoad( mRoadGen->visibleRoad(odometer) );
+	QPointF trajEndPoint(mTrajectory.last()->endPos());
+	double trajectoryOdoEndLoc = trajEndPoint.y();
+	TrajectorySection *lastTrajSection = mTrajectory.last();
+	while( qAbs(visibleRoad.last().odoEndLoc()-trajectoryOdoEndLoc) > 0.01 )	// try to avoid exact floating point number comparison...
+	{
+		// get the segment at the trajectory end
+		const RoadSegment *segAtTrajEnd = nullptr;
+		for( int i=0; i<visibleRoad.size(); ++i )
+		{
+			// if trajectory planning doesn't advance her, couse of float rounding errors, the trajectory never reaches the road end,
+			// implement roadSegment and trajectorySection indexing
+			if( (visibleRoad.at(i).odoStartLoc()<=trajectoryOdoEndLoc) && (visibleRoad.at(i).odoEndLoc()>trajectoryOdoEndLoc) )
+			{
+				segAtTrajEnd = &visibleRoad.at(i);
+				break;
+			}
+		}
+
+		if( !segAtTrajEnd )
+		{
+			qWarning() << "No roadSegment at trajectory end! Weird... (float overrounding?)";
+			break;
+		}
+
+		if( segAtTrajEnd->isBend() )
+		{
+			/* there could be BendLaneShift here as well, but as laneShift is generated only if it has an endpoint,
+			 * it cannot be continued, so a new segment must be appended regardless.*/
+			if( (lastTrajSection->type() == TrajectorySection::BendSection) &&
+				( ((TrajectorySectionBend*)lastTrajSection)->radius() == segAtTrajEnd->radius() ) )
+			{
+				//continue bendsection
+				lastTrajSection->setLength( segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc );
+			}
+			else
+			{
+				// append bendsection
+				mTrajectory.append( new TrajectorySectionBend(trajEndPoint, segAtTrajEnd->radius(), segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc) );
+			}
+
+		}
+		else
+		{
+			// again, BendLaneShift cannot be continued, so a new segment must be appended regardless.
+			if( lastTrajSection->type() != TrajectorySection::StraightSection )
+			{
+				mTrajectory.append( new TrajectorySectionStraight(trajEndPoint, segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc) );
+			}
+			else
+			{
+				// continue straight section
+				lastTrajSection->setLength( segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc );
+			}
+		}
+	}
+}
+
+double CarDriver::odoEndOfTrajectory() const
+{
+	return mTrajectory.last()->endPos().y();
+}
+
+double CarDriver::calculateObstacleAvoidancePoint( const RoadObstacle* obstacle )
+{
+	const RoadSegment *roadSegmentAtObstacle = mRoadGen->segmentAtOdo(obstacle->odoPos());
+	double roadWidth = roadSegmentAtObstacle->widthAt( obstacle->odoPos()-roadSegmentAtObstacle->odoStartLoc() );
+	double obstacleCrossPos = obstacle->normalPos()*roadWidth/2;
+
+	double obstacleCrossPosRelToCar = mCarCrossPos - obstacleCrossPos;
+	double minDistanceToObst = (obstacle->size()/2+mCar->size().width()/2+obstacleAvoidanceDistance);
+	double targetPoint = mCarCrossPos;
+
+	// do we crash into it?
+	if( qAbs(obstacleCrossPosRelToCar) < minDistanceToObst )
+	{ // we are on a crash trajectory!
+		QLineF spaceOnLeft(-roadWidth/2,0, obstacleCrossPos-obstacle->size()/2,0);
+		QLineF spaceOnRight(obstacleCrossPos+obstacle->size()/2,0, roadWidth/2,0 );
+		double neededSpace = mCar->size().width()+obstacleAvoidanceDistance;
+
+		// Dooooooooooooooooomed?
+		if( spaceOnRight.length() < neededSpace && spaceOnLeft.length() < neededSpace)
+		{
+			qWarning() << "Car doesn't fit on either side of obstacle (@" << obstacle->odoPos() << ")!";
+			emit unavoidableCrashDetected(obstacle->odoPos());
+			return targetPoint;
+		}
+
+		// then let's offset!
+		double targetPosRelToObstacle = obstacle->size()/2+obstacleAvoidanceDistance+mCar->size().width()/2;
+
+		// do we fit in the space on this side if we offset? If not, offset to the other way...
+		if( obstacleCrossPosRelToCar >= 0 )
+			{ targetPosRelToObstacle *= -1; }
+		if( spaceOnRight.length() >= neededSpace )
+		{
+			targetPoint = obstacleCrossPos+targetPosRelToObstacle;
+		}
+		else
+		{
+			targetPoint = obstacleCrossPos-targetPosRelToObstacle;
+		}
+	}
+
+	return targetPoint;
 }
 
 double CarDriver::currentCentripetalAccel() const
