@@ -43,6 +43,9 @@ public slots:
 	double roadVisibility() const
 		{ return mRoadVisibility; }
 
+	void onCarTractionLost(double atOdometer);
+	void onCarCrashed(double atOdometer);
+
 private:
 
 	QTimer mSimTimer;

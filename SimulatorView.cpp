@@ -3,6 +3,10 @@
 #include <QPainter>
 #include "SettingsManager.h"
 
+/* NOTES
+ * - left bend radius is negative.
+ * - a turn span angle is always positive. */
+
 SimulatorView::SimulatorView(Simulator *simulator, QWidget *parent) : QWidget(parent),
 	mSimulator(simulator), mPixelPerMeter(6.0)
 {
@@ -59,13 +63,13 @@ void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, do
 		double width = segment->widthAt(0);
 		{	// road body and centerline
 			double radiusAbs = segment->radiusAbs();
-			double radius = radiusAbs; if( segment->radius() < 0 ) { radius *= -1; }
+			double radius = segment->radius();
 			double fullAlpha = segment->length() / segment->radiusAbs();
 			double drawnAlpha = fullAlpha * (paintToNormalPos-paintFromNormalPos);
 			QRectF arcBounds;
 			QPointF startPos = QPointF(0,0);
 			arcBounds.setBottomRight(QPointF(startPos.x(),startPos.y()+radiusAbs));
-			arcBounds.setTopLeft(QPointF(startPos.x()-radius*2,startPos.y()-radiusAbs));
+			arcBounds.setTopLeft(QPointF(startPos.x()+radius*2,startPos.y()-radiusAbs));
 
 			QPainterPath bendPath(startPos);
 			bendPath.arcTo( arcBounds, 0.0, drawnAlpha/M_PI*180.0 );
@@ -77,7 +81,7 @@ void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, do
 			painter->drawPath(bendPath);
 
 			endPoint = bendPath.currentPosition();
-			if( segment->radius() < 0 ) { drawnAlpha *= -1; }
+			if( segment->radius() >= 0 ) { drawnAlpha *= -1; }
 			endTangent = M_PI_2 + drawnAlpha;
 		}
 		painter->setPen(sideLinePen);
@@ -87,15 +91,14 @@ void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, do
 			double radius = radiusAbs;
 			QPointF startPos = QPointF(width/2,0);
 			if( segment->radius() < 0 )
-			{
-				radius *= -1;
-				startPos.setX(startPos.x()*-1);
-			}
+				{ radius *= -1; }
+			else
+				{ startPos.setX(startPos.x()*-1); }
 			double fullAlpha = segment->length() / segment->radiusAbs();
 			double drawnAlpha = fullAlpha * (paintToNormalPos-paintFromNormalPos);
 			QRectF arcBounds;
 			arcBounds.setBottomRight(QPointF(startPos.x(),startPos.y()+radiusAbs));
-			arcBounds.setTopLeft(QPointF(startPos.x()-radius*2,startPos.y()-radiusAbs));
+			arcBounds.setTopLeft(QPointF(startPos.x()+radius*2,startPos.y()-radiusAbs));
 
 			QPainterPath bendPath(startPos);
 			bendPath.arcTo( arcBounds, 0.0, drawnAlpha/M_PI*180.0 );
@@ -106,15 +109,14 @@ void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, do
 			double radius = radiusAbs;
 			QPointF startPos = QPointF(-width/2,0);
 			if( segment->radius() < 0 )
-			{
-				radius *= -1;
-				startPos.setX(startPos.x()*-1);
-			}
+				{ radius *= -1; }
+			else
+				{ startPos.setX(startPos.x()*-1); }
 			double fullAlpha = segment->length() / segment->radiusAbs();
 			double drawnAlpha = fullAlpha * (paintToNormalPos-paintFromNormalPos);
 			QRectF arcBounds;
 			arcBounds.setBottomRight(QPointF(startPos.x(),startPos.y()+radiusAbs));
-			arcBounds.setTopLeft(QPointF(startPos.x()-radius*2,startPos.y()-radiusAbs));
+			arcBounds.setTopLeft(QPointF(startPos.x()+radius*2,startPos.y()-radiusAbs));
 
 			QPainterPath bendPath(startPos);
 			bendPath.arcTo( arcBounds, 0.0, drawnAlpha/M_PI*180.0 );
@@ -184,8 +186,8 @@ void SimulatorView::paintRoadObstaclesOnSegment(QPainter *painter, const RoadGen
 		if( segment->isBend() )
 		{
 			double gamma = obstaclePosAlongPathFromOrigin / segment->radiusAbs();
-			double obstacleRadius = segment->radius() + obst->normalPos()*(segment->widthAt(obstaclePosAlongPathFromOrigin)/2);	// signed! (sign of roadRadius determines the sign of the obstacle X coord)
-			obstaclePos.setX( -segment->radius() + obstacleRadius * cos(gamma) );
+			double obstacleRadius = -segment->radius() + obst->normalPos()*(segment->widthAt(obstaclePosAlongPathFromOrigin)/2);	// signed! (sign of roadRadius determines the sign of the obstacle X coord)
+			obstaclePos.setX( segment->radius() + obstacleRadius * cos(gamma) );
 			obstaclePos.setY( -fabs(obstacleRadius) * sin(gamma) );
 		}
 		else

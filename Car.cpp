@@ -4,7 +4,7 @@
 #include <QDateTime>
 
 Car::Car(QObject *parent) : QObject(parent),
-	mMassKg(1000), mSizeM(1.6,4.0), mMaxAccelMpss(5.0), mFrictionCoeffStatic(0.2), mMaxWheelAngle(50.0/180.0*M_PI), mOdometer(0.0), mAcceleration(0.0), mSpeed(0.0), mLastSimUpdateTime(0)
+	mMassKg(1000), mSizeM(1.6,4.0), mMaxAccelMpss(5.0), mFrictionCoeffStatic(0.2), mMaxWheelAngle(50.0/180.0*M_PI), mOdometer(0.0), mAcceleration(0.0), mSpeed(0.0), mWheelAngle(0.0), mLastSimUpdateTime(0)
 {
 	if( !SettingsManager::instance()->contains("car/massKg") )
 		{ SettingsManager::instance()->setValue("car/massKg", 1000); }
@@ -40,14 +40,12 @@ double Car::odometer() const
 
 void Car::accelerate(float accelMpss)
 {
-	if( -mMaxAccelMpss < accelMpss && accelMpss < mMaxAccelMpss )
-		{ mAcceleration = accelMpss; }
+	mAcceleration = qBound(-mMaxAccelMpss,(double)accelMpss,mMaxAccelMpss);
 }
 
 void Car::decelerate(float decelerateMpss)
 {
-	if( 0 < decelerateMpss && decelerateMpss < mMaxAccelMpss )
-	{ mAcceleration = -decelerateMpss; }
+	mAcceleration = -qBound(0.0,(double)qAbs(decelerateMpss),mMaxAccelMpss);
 }
 
 double Car::minTurnRadius() const
@@ -57,9 +55,36 @@ double Car::minTurnRadius() const
 
 double Car::turnRadiusAtWheelAngle(double angleRad) const
 {
+	short int sign = 1; if( angleRad < 0 ) { sign *= -1; }
 	// average: (front + back) / 2 + w/2
 	angleRad = qBound(0.0, qAbs(angleRad), mMaxWheelAngle);
-	return (mAxisDistance/sin(angleRad) + mAxisDistance/tan(angleRad)) / 2 + mSizeM.width()/2;
+	return sign*( (mAxisDistance/sin(angleRad) + mAxisDistance/tan(angleRad) + mSizeM.width()) / 2 );
+}
+
+void Car::steer(double wheelAngleRad)
+{
+	if( wheelAngleRad > mMaxWheelAngle )
+		{ wheelAngleRad = mMaxWheelAngle; }
+	else if( wheelAngleRad < -mMaxWheelAngle )
+		{ wheelAngleRad = -mMaxWheelAngle; }
+	mWheelAngle = wheelAngleRad;
+}
+
+double Car::turnRadius() const
+{
+	return turnRadiusAtWheelAngle(mWheelAngle);
+}
+
+void Car::steerForTurnRadius(double turnRadius)
+{
+	// turnRadius < 0 -> left turn
+	short int sign = 1; if( turnRadius < 0 ) { sign *= -1; }
+	turnRadius = qAbs(turnRadius);
+	double minTurnR = minTurnRadius();
+	if( turnRadius < minTurnR )
+		{ turnRadius = minTurnR; }
+	// this is the inverse function of the one in turnRadiusAtWheelAngle() for positive angles
+	steer( sign*( 2*(M_PI_2-atan( (2*turnRadius-mSizeM.width())/mAxisDistance )) ) ); // pi/2-arctan(x) = arccot(x)
 }
 
 void Car::simUpdate(const quint64 simTime)

@@ -2,118 +2,204 @@
 #include <QDebug>
 #include <QLineF>
 
+/* NOTES
+ * - left bend radius is negative.
+ * - a turn span angle is always positive.*/
+
 const double CarDriver::obstacleAvoidanceDistance = 0.5;
 
 CarDriver::CarDriver(Car *car, RoadGenerator *roadGen, QObject *parent) : QObject(parent),
-	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed), mCarCrossPos(0)
+	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed), mCarCrossPos(0), mAccelerationMode(ProportionalAcceleration),
+	mThreats({0,0}), mCrashed(false), mTractionLost(false), mBendMaxSpeedSafetyFactor(0.8)
 {
 
 }
 
 void CarDriver::simUpdate(const quint64 simTime)
 {
-	/* TRAJECTORY KEEPING
-	 * warning: if you cut off from the beginning of a trajectory segment, set startPos accordingly!*/
-
-	/* SPEED CONTROL.
-	 * Algorithm: the following wequence is followed:
-	 * 0. target speed is cruiseSpeed
-	 * 1. check the next bend on the road (not counting the one we are possibly on) and calculate the maximum speed we can take the turn with.
-	 *	  Check if we should already start braking, using the current largest possible deceleration. If we should, set the calculated target speed.
-	 *	  If no bend visible, leave cruiseSpeed as target.
-	 * 2. check if target speed is not greater than current max possible speed to stay on the road if we are on a bend.
-	 * 3. try to reach target speed, calculate acceleration for that, and limit it by the forces resulting on the current bend if we are on one.
-	 * 4. give the acceleration value to car to do he acceleration.*/
-
 	// some facts
 	double currentSpeed = mCar->speed();
+	QVector2D currentAcceleration = currentNetAccel();
 	double odometer = mCar->odometer();
 	double maxAccelAllowedByFriction = mCar->frictionCoeffStatic() * 9.81;
-	double centripetalAccel = currentCentripetalAccel();
+
+	if( currentAcceleration.length() > maxAccelAllowedByFriction && !mTractionLost )
+	{
+		mTractionLost = true;
+		emit tractionLost(odometer);
+		qWarning() << "TRACTION LOST at odo=" << odometer;
+	}
+
+	/* --- FEATURE POINT GENERATION -------------------------------------------------------------------*/
+	QQueue<RoadSegment> visibleRoad( mRoadGen->visibleRoad(odometer) );
+	QQueue<RoadObstacle> visibleObstacles( mRoadGen->visibleObstacles(odometer) );
+	static double featurePointGenHorizon = 0;
+
+	for( int i=0; i<visibleRoad.size(); ++i )
+	{
+		// find the segment at featurePointGenHorizon
+		if( visibleRoad.at(i).odoStartLoc() >= featurePointGenHorizon )
+		{
+			const RoadSegment *seg = &visibleRoad.at(i);
+			roadFeaturePoint *rfp = new roadFeaturePoint;
+			rfp->odoPos = seg->odoStartLoc();
+			if( seg->isBend() )
+			{
+				rfp->type = BendStartFeaturePoint;
+				rfp->radius = seg->radius();
+				rfp->maxSpeed = sqrt( maxAccelAllowedByFriction * seg->radiusAbs() ) * mBendMaxSpeedSafetyFactor;
+			}
+			else
+			{
+				rfp->type = StraightStartFeaturePoint;
+				rfp->maxSpeed = mCruiseSpeed;
+			}
+			mRoadFeaturePoints.append(rfp);
+		}
+	}
+	featurePointGenHorizon = visibleRoad.last().odoEndLoc();
+
+	/* SPEED & ACCELERATION CONTROL. ==============================================================================================================
+	 * Algorithm: the following sequence is followed:
+	 * - if a featurePoint is passed (left behind), set it's speed as target and set ProportionalAccel method.
+	 * - till the nearest brakePoint, continue to go with/accel to targetSpeed (given by last left-behind featurePoint)
+	 * - calculate closest brakePoint from roadFeaturePoints
+	 * - if a brakePoint reached, set MaxAccel method and targetSpeed of the featurePoint belonging to the brakePoint
+	 * */
+
+	double unavoidableTractionLossAtOdo = -1.0;
+	double unavoidableCrashAtOdo = -1.0;
+
+	//more facts
+	double centripetalAccel = currentAcceleration.x();
 	double maxTangentialAccel;
-	double maxTangentialAccelHeadroomFactor = 0.95; // don't go on the limit
 	if( pow(maxAccelAllowedByFriction,2) < pow(centripetalAccel,2) )
 		{ maxTangentialAccel = 0; }
 	else
 		{ maxTangentialAccel = sqrt( pow(maxAccelAllowedByFriction,2) - pow(centripetalAccel,2) ); }
 	if( maxTangentialAccel < 0.05 )
-		{ qWarning() << "Max tangential accel is too low! (" << maxTangentialAccel << ") Cant slow down!"; }
-	double maxSafeTangentialAccel = maxTangentialAccel * maxTangentialAccelHeadroomFactor;
-	double bendSpeedHeadroomFactor = 0.8; // with full speed in bend, there can be no deceleration due to net force being already at maximum allowed by friction
-	double extraDecelDistanceForNextBend = 5.0;	// extra distance to add to decelDistance -> start braking sooner
-	qInfo() << "centripAcc=" << centripetalAccel;
-	qInfo() << "sumAcc=" << currentNetAccel();
+		{ qWarning() << "Max possible tangential accel is practically zero!"; }
+	double maxSafeTangentialAccel = maxTangentialAccel * 0.95; // don't go on the limit
+	qInfo() << "accVect=" << currentAcceleration;
 	qInfo() << "speed=" << currentSpeed*3.6;
 
-	// calc speed for next bend, decide if we should start decelerating
-	const RoadSegment *nextBend = mRoadGen->nextBend( mCar->odometer() );
-	static RoadSegment *lastCalculatedNextBend;
-	if( nextBend /*&& nextBend != lastCalculatedNextBend*/ )
+	// if a feature point is passed (left behind, but not yet deleted at the end of this simUpdate), set it's target speed and proportional acc
+	roadFeaturePoint *lastPassedFP = nullptr;
+	for( int i=0; i<mRoadFeaturePoints.size(); ++i )
 	{
-		qInfo() << "Calc speed for next bend (@" << nextBend->odoStartLoc() << ")";
-		lastCalculatedNextBend = (RoadSegment*)nextBend;
-		double maxSpeedForNextBend = sqrt( maxAccelAllowedByFriction * nextBend->radiusAbs() );
-		double maxSafeSpeedForNextBend = maxSpeedForNextBend * bendSpeedHeadroomFactor;
-		if( maxSafeSpeedForNextBend < currentSpeed )
+		if( mRoadFeaturePoints.at(i)->odoPos < odometer )
+			{ lastPassedFP = mRoadFeaturePoints.at(i); }
+	}
+	if( lastPassedFP )
+	{
+		mAccelerationMode = ProportionalAcceleration;
+		mTargetSpeed = qBound(0.0,lastPassedFP->maxSpeed,mCruiseSpeed);
+		qInfo() << "Passed FeaturePoint@"<<lastPassedFP->odoPos<<", set targetSpeed="<<mTargetSpeed;
+
+		// TODO work on this
+		if( lastPassedFP->type == BendStartFeaturePoint )
+			{ mCar->steerForTurnRadius(lastPassedFP->radius); }
+		else if( lastPassedFP->type == StraightStartFeaturePoint )
+			{ mCar->steer(0); }
+	}
+
+	// Search for and set nearest brakePoint -------------------------------------------------------------------------
+	double nearestBrakePointOdo = -1;
+	roadFeaturePoint *featurePointOfNearestBrake = nullptr;
+	bool brakeSetCopyOfFeaturePointOfNearestBrake = false;
+	for( int i=0; i<mRoadFeaturePoints.size(); ++i )
+	{
+		if( mRoadFeaturePoints.at(i)->maxSpeed < currentSpeed )
 		{
-			double decelTimeForNextBend = (currentSpeed-maxSafeSpeedForNextBend) / maxSafeTangentialAccel;
-			double decelDistanceForNextBend = currentSpeed*decelTimeForNextBend - maxSafeTangentialAccel * pow(decelTimeForNextBend,2) / 2; // minus, because deceleration
-			decelDistanceForNextBend += extraDecelDistanceForNextBend;
-			qInfo() << "\tdist2Next: " << nextBend->odoStartLoc()-odometer << ", maxSafeSpeed: " << maxSafeSpeedForNextBend*3.6 << ", decelDistance: " << decelDistanceForNextBend;
-
-			/// TODO: check if decelDistance is smaller than the available road ahead
-			/// TODO: set accelVal here?
-
-			if( decelDistanceForNextBend >= (nextBend->odoStartLoc()-odometer) )
+			double decelTimeForNextBend = (currentSpeed-mRoadFeaturePoints.at(i)->maxSpeed) / maxSafeTangentialAccel;
+			double decelDistance = currentSpeed*decelTimeForNextBend - maxSafeTangentialAccel * pow(decelTimeForNextBend,2) / 2; // minus, because deceleration
+			double brakeOdoPoint = mRoadFeaturePoints.at(i)->odoPos - decelDistance;
+			if( nearestBrakePointOdo < 0 || brakeOdoPoint < nearestBrakePointOdo )
 			{
-				mTargetSpeed = maxSafeSpeedForNextBend;
-				qInfo() << "\tlimit speed NOW for next bend kmh: " << mTargetSpeed*3.6;
+				nearestBrakePointOdo = brakeOdoPoint;
+				featurePointOfNearestBrake = mRoadFeaturePoints.at(i);
+				brakeSetCopyOfFeaturePointOfNearestBrake = featurePointOfNearestBrake->brakePointSet;
+				featurePointOfNearestBrake->brakePointSet = true;
+			}
+		}
+	}
+
+	// this section is active from the detection of the feature/brake point till car reaches target speed
+	if( featurePointOfNearestBrake && nearestBrakePointOdo < odometer )
+	{
+		if( !brakeSetCopyOfFeaturePointOfNearestBrake )
+		{ // set threat signals
+			if( featurePointOfNearestBrake )
+			{
+				if( featurePointOfNearestBrake->type == BendStartFeaturePoint )
+				{
+					++mThreats.tractionLoss;
+					if( unavoidableTractionLossAtOdo < 0 || unavoidableTractionLossAtOdo > featurePointOfNearestBrake->odoPos )
+						{ unavoidableTractionLossAtOdo = featurePointOfNearestBrake->odoPos; }
+				}
+				else
+				{
+					++mThreats.crash;
+					if( unavoidableCrashAtOdo < 0 || unavoidableCrashAtOdo > featurePointOfNearestBrake->odoPos )
+						{ unavoidableCrashAtOdo = featurePointOfNearestBrake->odoPos; }
+				}
 			}
 			else
-			{
-				qInfo() << "\tbend is still far ahead...";
-			}
+				{ ++mThreats.crash; }
+		}
+
+		mAccelerationMode = MaxAcceleration;
+		mTargetSpeed = featurePointOfNearestBrake->maxSpeed;
+	}
+
+	// calculate acceleration -------------------------------------------------------------------------
+	double actualAcceleration = 0;
+	double speedError = mTargetSpeed - currentSpeed;
+	short int accelSign = 1;
+	if( speedError < 0 ) {  accelSign = -1; }
+
+	static double previousSpeed = 0;
+
+	if( mAccelerationMode == MaxAcceleration )
+	{
+		if( (previousSpeed > mTargetSpeed && currentSpeed < mTargetSpeed) || (previousSpeed < mTargetSpeed && currentSpeed > mTargetSpeed) )
+		{
+			mAccelerationMode = ProportionalAcceleration;
+			actualAcceleration = 0.0;
 		}
 		else
-		{
-			mTargetSpeed = mCruiseSpeed;
-			qInfo() << "\tcurrent speed is OK for next bend, set cruise";
-		}
+			{ actualAcceleration = accelSign * maxSafeTangentialAccel; }
 	}
-	else
+	else if( mAccelerationMode == ProportionalAcceleration )
 	{
-		mTargetSpeed = mCruiseSpeed;
+		actualAcceleration = qBound(-maxSafeTangentialAccel, speedError * 0.8, maxSafeTangentialAccel);	// P controller
 	}
 
-	// chack for max bend speed due to centripetal forces
-	double currentMaxPossibleBendSpeed = currentMaxPossibleSpeedOnBend();
-	if( mTargetSpeed > currentMaxPossibleBendSpeed )
+	// set car params -------------------------------
+	mCar->accelerate( actualAcceleration );
+	qInfo() << "Set car acc: " << actualAcceleration;
+
+	// end stuff -----------------------------
+
+	// signal threats
+	if( !mTractionLost && mThreats.tractionLoss > 0 )
 	{
-		mTargetSpeed = currentMaxPossibleBendSpeed * bendSpeedHeadroomFactor;
-		qInfo() << "Limit target speed due to current bend to " << mTargetSpeed*3.6 << " km/h";
+		qWarning() << "Unavoidable traction loss at odo " << unavoidableTractionLossAtOdo;
+		emit unavoidableTractionLossDetected(unavoidableTractionLossAtOdo);
 	}
-
-	// P control won't do -> next bend algorithm calculates with max tangential accel, so use that -> but now there is always acceleration....
-	double speedControlP = 0.5;
-	double speedError = mTargetSpeed-currentSpeed;
-	double accelerateVal;
-	if( fabs(speedError) < 0.5 )
-		{ accelerateVal = speedError*speedControlP; }
-	else
+	if( !mCrashed && mThreats.crash > 0 )
 	{
-		accelerateVal = maxSafeTangentialAccel;
-		if( mTargetSpeed < currentSpeed )
-			{ accelerateVal *= -1; }
+		qWarning() << "Unavoidable crash at odo " << unavoidableCrashAtOdo;
+		emit unavoidableCrashDetected(unavoidableCrashAtOdo);
 	}
+	mThreats.tractionLoss = 0;
+	mThreats.crash = 0;
 
-	if( accelerateVal > maxSafeTangentialAccel )
-		{ accelerateVal = maxSafeTangentialAccel;	}
-	if( accelerateVal < -maxSafeTangentialAccel )
-		{ accelerateVal = -maxSafeTangentialAccel;	}
+	// delete left-behind feature point(s)
+	while( !mRoadFeaturePoints.isEmpty() && mRoadFeaturePoints.first()->odoPos < odometer )
+		{ delete mRoadFeaturePoints.takeFirst(); }
 
-	// accelerate / decelerate
-	qInfo() << "Set acceleration: " << accelerateVal;
-	mCar->accelerate( accelerateVal );
+	previousSpeed = currentSpeed;
 
 	qInfo() << "------------------------------------------------------";
 }
@@ -190,6 +276,11 @@ double CarDriver::odoEndOfTrajectory() const
 double CarDriver::calculateObstacleAvoidancePoint( const RoadObstacle* obstacle )
 {
 	const RoadSegment *roadSegmentAtObstacle = mRoadGen->segmentAtOdo(obstacle->odoPos());
+	if( !roadSegmentAtObstacle )
+	{
+		qWarning() << "No roadSegment at obstacle@"<<obstacle->odoPos();
+		return 0.0;
+	}
 	double roadWidth = roadSegmentAtObstacle->widthAt( obstacle->odoPos()-roadSegmentAtObstacle->odoStartLoc() );
 	double obstacleCrossPos = obstacle->normalPos()*roadWidth/2;
 
@@ -233,22 +324,31 @@ double CarDriver::calculateObstacleAvoidancePoint( const RoadObstacle* obstacle 
 
 double CarDriver::currentCentripetalAccel() const
 {
-	const RoadSegment *currentRoadSegment = mRoadGen->segmentAtOdo(mCar->odometer());
-	if( !currentRoadSegment )
-	{
-		qWarning("No current roadSegment in CarDriver::currentCentripetalAccel()!");
-		return 0;
-	}
-	double currentRoadRadius = currentRoadSegment->radius();
+	// old
+//	const RoadSegment *currentRoadSegment = mRoadGen->segmentAtOdo(mCar->odometer());
+//	if( !currentRoadSegment )
+//	{
+//		qWarning("No current roadSegment in CarDriver::currentCentripetalAccel()!");
+//		return 0;
+//	}
+//	double currentRoadRadius = currentRoadSegment->radius();
+//	double currentCentripetalAccel = 0;
+//	if( currentRoadRadius != 0 )
+//		{ currentCentripetalAccel = pow(mCar->speed(),2) / currentRoadRadius; }
+//	return currentCentripetalAccel;
+
+	double currentRoadRadius = mCar->turnRadius();
 	double currentCentripetalAccel = 0;
 	if( currentRoadRadius != 0 )
 		{ currentCentripetalAccel = pow(mCar->speed(),2) / currentRoadRadius; }
 	return currentCentripetalAccel;
 }
 
-double CarDriver::currentNetAccel() const
+QVector2D CarDriver::currentNetAccel() const
 {
-	return sqrt( pow(mCar->acceleration(),2) + pow(currentCentripetalAccel(),2));
+	QVector2D tangentAccel(0,mCar->acceleration());
+	QVector2D centripAccel(currentCentripetalAccel(),0);
+	return tangentAccel + centripAccel;
 }
 
 double CarDriver::currentMaxPossibleSpeedOnBend() const

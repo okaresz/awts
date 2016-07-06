@@ -55,7 +55,7 @@ void MainWindow::onSimUpdated()
 
 	QLabel *maxAccelRatioLabel = mDashboardWidget->findChild<QLabel*>("maxAccelRatioLabel");
 	if( maxAccelRatioLabel )
-		{ maxAccelRatioLabel->setText(QString("maxAccelRatio: %1/%2").arg(mSimView->simulator()->carDriver()->currentNetAccel(),3,'f',2).arg(mSimView->simulator()->car()->frictionCoeffStatic()*9.81,3,'f',2) ); }
+		{ maxAccelRatioLabel->setText(QString("maxAccelRatio: %1/%2").arg(mSimView->simulator()->carDriver()->currentNetAccel().length(),3,'f',2).arg(mSimView->simulator()->car()->frictionCoeffStatic()*9.81,3,'f',2) ); }
 
 	emit updateMaxAccelRatioDisplay( mSimView->simulator()->currentMaxAccelerationRatio() * 100 );
 }
@@ -150,7 +150,7 @@ void MainWindow::buildDashboardWidget()
 	QSlider *maxAccelRatioSlider = new QSlider(Qt::Horizontal, mDashboardWidget);
 	maxAccelRatioSlider->setDisabled(true);
 	maxAccelRatioSlider->setObjectName("maxAccelRatioSlider");
-	maxAccelRatioSlider->setMinimum(0);
+	maxAccelRatioSlider->setMinimum(-100);
 	maxAccelRatioSlider->setMaximum(100);
 	maxAccelRatioSlider->setValue(0);
 	connect( this, SIGNAL(updateMaxAccelRatioDisplay(int)), maxAccelRatioSlider, SLOT(setValue(int)) );

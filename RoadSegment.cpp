@@ -3,8 +3,10 @@
 #include "RandGen.h"
 #include <QDebug>
 
+long int RoadSegment::segmentCounter = 0;
+
 RoadSegment::RoadSegment(double odoStartLoc) :
-	mOdoStartLoc(odoStartLoc)
+	mSegmentId(++segmentCounter), mOdoStartLoc(odoStartLoc)
 {
 	initSettings();
 
@@ -31,7 +33,7 @@ RoadSegment::RoadSegment(double odoStartLoc) :
 }
 
 RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth) :
-	mOdoStartLoc(odoStartLoc), mRadius(radius), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
+	mSegmentId(++segmentCounter), mOdoStartLoc(odoStartLoc), mRadius(radius), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
 {
 	initSettings();
 
@@ -41,16 +43,11 @@ RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, doubl
 		if( maxTurnRad * fabs(mRadius) < mLength )
 			{ mLength = maxTurnRad * mRadius; }
 	}
-	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mOdoStartLoc).arg( mLength ).arg(mRadius);
 }
 
-RoadSegment::RoadSegment(const RoadSegment &other)
+RoadSegment::RoadSegment(const RoadSegment &other) : mSegmentId(other.mSegmentId)
 {
-	mOdoStartLoc = other.odoStartLoc();
-	mRadius = other.radius();
-	mLength = other.length();
-	mStartWidth = other.startWidth();
-	mEndWidth = other.endWidth();
+	copy(other);
 }
 
 double RoadSegment::length() const
@@ -61,6 +58,22 @@ double RoadSegment::length() const
 double RoadSegment::widthAt(const double metersFromSegmentStart) const
 {
 	return mStartWidth + (mEndWidth-mStartWidth) * (metersFromSegmentStart/mLength);
+}
+
+RoadSegment &RoadSegment::operator=(const RoadSegment &other)
+{
+	return copy(other);
+}
+
+RoadSegment &RoadSegment::copy(const RoadSegment &other)
+{
+	mSegmentId = other.mSegmentId;
+	mOdoStartLoc = other.mOdoStartLoc;
+	mRadius = other.mRadius;
+	mLength = other.mLength;
+	mStartWidth = other.mStartWidth;
+	mEndWidth = other.mEndWidth;
+	return *this;
 }
 
 void RoadSegment::initSettings()

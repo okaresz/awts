@@ -22,14 +22,9 @@ public slots:
 	 * Generate more road if necessary.*/
 	void simUpdate(const quint64 simTime, const double simOdometer);
 
-	/// Get the generated road length ahead in meters.
-	double lengthAhead(double simOdometer ) const;
-	/// Get the location of the end of the generated road.
-	double endOfRoad() const;
-
 	QQueue<RoadSegment> visibleRoad(const double odometer) const;
 
-	const QQueue<RoadObstacle> visibleObstacles(const double odometer) const;
+	QQueue<RoadObstacle> visibleObstacles(const double odometer) const;
 
 	const QQueue<RoadSegment*> *segments() const
 		{ return &mSegmentQueue; }
@@ -38,10 +33,16 @@ public slots:
 		{ return &mObstacleQueue; }
 
 	const RoadSegment *segmentAtOdo( double odometerVal );
+
+private:
 	/// Return next bend segment ahead of given odometer value.
 	const RoadSegment *nextBend( double odometerVal );
 
-private:
+	/// Get the generated road length ahead in meters.
+	double lengthAhead(double simOdometer ) const;
+	/// Get the location of the end of the generated road.
+	double endOfGeneratedRoad() const;
+
 	void deleteObstaclesBefore(double odoMark);
 
 	double mRoadGenerationHorizon;

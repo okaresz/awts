@@ -17,11 +17,17 @@ Simulator::Simulator(QObject *parent) : QObject(parent),
 	mRoadGen.setRoadGenerationHorizon(mRoadVisibility);
 
 	connect( &mSimTimer, SIGNAL(timeout()), this, SLOT(simUpdate()) );
+
+	connect( &mDriver, SIGNAL(tractionLost(double)), this, SLOT(onCarTractionLost(double)) );
+	connect( &mDriver, SIGNAL(crashed(double)), this, SLOT(onCarCrashed(double)) );
 }
 
 double Simulator::currentMaxAccelerationRatio() const
 {
-	return mDriver.currentNetAccel() / (mCar.frictionCoeffStatic() * 9.81);
+	double scalarRatio = mDriver.currentNetAccel().length() / (mCar.frictionCoeffStatic() * 9.81);
+	if( mDriver.currentNetAccel().x() < 0 )
+		{ scalarRatio *= -1; }
+	return scalarRatio;
 }
 
 void Simulator::start()
@@ -45,4 +51,14 @@ void Simulator::simUpdate()
 	emit simUpdated();
 
 	mSimTime += mSimIntervalMs;
+}
+
+void Simulator::onCarTractionLost(double atOdometer)
+{
+	stop();
+}
+
+void Simulator::onCarCrashed(double atOdometer)
+{
+	stop();
 }

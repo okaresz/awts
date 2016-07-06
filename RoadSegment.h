@@ -34,9 +34,21 @@ public:
 		{ return mStartWidth; }
 	double endWidth() const
 		{ return mEndWidth; }
+
+	long int segmentId() const
+		{ return mSegmentId; }
+
+	bool operator==(const RoadSegment &other) const
+		{ return this->mSegmentId == other.mSegmentId; }
+
+	RoadSegment& operator=(const RoadSegment &other);
+	RoadSegment& copy(const RoadSegment &other);
+
 private:
 	void initSettings();
 
+	static long int segmentCounter;
+	long int mSegmentId;
 	double mOdoStartLoc;	///< Starting location of the segment along the road (got from odometer)
 	double mRadius; ///< Radius of the centerline
 	double mLength; ///< Length of the centerline

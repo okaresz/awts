@@ -27,7 +27,7 @@ void RoadGenerator::simUpdate(const quint64 simTime, const double simOdometer)
 	// if necessary, add new segment
 	while( lengthAhead(simOdometer) < SettingsManager::instance()->value( "simulation/visibleRoadAheadM").toDouble() )
 	{
-		mSegmentQueue.enqueue( new RoadSegment(endOfRoad()) );
+		mSegmentQueue.enqueue( new RoadSegment(endOfGeneratedRoad()) );
 
 		// generate obstcles for the new segment
 		double obstacleprobabilityOnSegment = SettingsManager::instance()->value("road/obstacleprobabilityPerMeter").toDouble()*mSegmentQueue.last()->length();
@@ -63,7 +63,7 @@ double RoadGenerator::lengthAhead(double simOdometer) const
 	return mSegmentQueue.last()->odoEndLoc() - simOdometer;
 }
 
-double RoadGenerator::endOfRoad() const
+double RoadGenerator::endOfGeneratedRoad() const
 {
 	if( mSegmentQueue.isEmpty() )
 		{ return 0.0; }
@@ -93,7 +93,7 @@ QQueue<RoadSegment> RoadGenerator::visibleRoad(const double odometer) const
 	return visibleRoad;	// let the compiler do the return value optimization
 }
 
-const QQueue<RoadObstacle> RoadGenerator::visibleObstacles(const double odometer) const
+QQueue<RoadObstacle> RoadGenerator::visibleObstacles(const double odometer) const
 {
 	double horizon = odometer + mRoadVisibility;
 	QQueue<RoadObstacle> visibleObstacles;

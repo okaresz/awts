@@ -1,0 +1,42 @@
+NOTES
+-------------------------
+
+```
+Trajectory stuff is incomplete all over the place, probably never will be finished
+	Section classes should be finished
+	trajectory planning in CarDriver should be continued
+
+Steering control based turning approach
+	obstacle avoidance
+		calculate point beside obstacle where to pass
+		I should be able to calculate the distance of the avoidance manouver (start to steer with max allowed radius by friction and max allowed by car)
+		if avoidDist < obstDist, calculate an avoidance with all the available distance (how? steering control P?...no)
+		if avoidDist > obstDist, start to slow down with max acc (and calculate again)
+		set target normal pos for steering control, and done
+	bend turn
+		lane control:
+			car calculates current turn radius -> get shift in given odo
+			roadRadius at a given point is known. in bend roadRadius-carTurnRadius=dR gives the rate of shift. rate of shift with simInterval->delta Odo gives delta crossPos
+```
+
+TODO
+--------------------------
+
+**CarDriver**
+
+- check car min turn radius everywhere (where driver just pushes the car along track)
+- roadWidth variation
+  - only in straights from start to end (next segment continues with end width!)
+- signel something when maxTangentialAccel<epsilon? possibleCrash or sg?
+- what if I'm on a turn, limited by centripAcc to brake for a coming, second turn, which comes after a straight segment on which I can brake fully? Somehow I should calculate decelDistance based on the road ahead... (not so hard..)
+- if cruise speed is updated from gui, react to it! now only updates on new straight segment start
+- decelDistance should consider currentSpeed*dT, where dT is simulation interval. can lead to tractionLoss/crash.
+
+**Simulation**
+
+  - catch unavoidable and final tractionLoss and crash signals from driver, relay to simView?
+
+**Visualization, GUI**
+
+  - separate slider for tangential accel (now +tangential and +normal are the same)
+  
