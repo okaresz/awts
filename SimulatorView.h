@@ -26,8 +26,8 @@ protected:
     void paintEvent(QPaintEvent *event);
 
 private:
-	void paintCar(QPainter *painter, const QPointF carCenterPoint, const QSize carSize );
-	void paintRoad(QPainter *painter, QPointF startPoint, double odometer, double visibility );
+	void paintCar(QPainter *painter, const QPointF carCenterPoint, const double carHeading, const QSize carSize );
+	void paintRoad(QPainter *painter, QPointF startPoint, double travel, double visibility );
 
 	/** Paint road segment from the current painter position (0,0), straight road points upwards.
 	 *	@param paintFromNormalPos Paint the segment from this normalized position along segment length.
@@ -37,7 +37,7 @@ private:
 	void paintRoadSegment(QPainter *painter, RoadSegment *segment, double paintFromNormalPos, double paintToNormalPos, QPointF &endPoint, double &endTangent );
 	/** Paint road segment obstacles from the current painter position (0,0), straight road points upwards.
 	 *	Params are similar to paintRoadSegment().*/
-	void paintRoadObstaclesOnSegment(QPainter *painter, const RoadGenerator *roadGen, RoadSegment *segment, double paintFromNormalPos, double odometer, double visibility);
+	void paintRoadObstaclesOnSegment(QPainter *painter, const RoadGenerator *roadGen, RoadSegment *segment, double paintFromNormalPos, double travel, double visibility);
 
 	Simulator *mSimulator;
 	double mPixelPerMeter;

@@ -2,11 +2,12 @@
 #include "SettingsManager.h"
 #include "RandGen.h"
 #include <QDebug>
+#include <QVector2D>
 
 long int RoadSegment::segmentCounter = 0;
 
-RoadSegment::RoadSegment(double odoStartLoc) :
-	mSegmentId(++segmentCounter), mOdoStartLoc(odoStartLoc)
+RoadSegment::RoadSegment(roadLocation_t startLocation) :
+	mSegmentId(++segmentCounter), mStartLoc(startLocation)
 {
 	initSettings();
 
@@ -17,31 +18,31 @@ RoadSegment::RoadSegment(double odoStartLoc) :
 	double straightProb = RandGen::instance()->generateF();
 	if( straightProb < SettingsManager::instance()->value("road/straightVsBendSegmentProbability").toDouble() )
 	{
-		mRadius = 0;
+		mCurvature = 0;
 	}
 	else // Generate random radius for bend
 	{
-		mRadius = RandGen::instance()->generateF( SettingsManager::instance()->value("road/bendMinRadiusM").toDouble(), SettingsManager::instance()->value("road/bendMaxRadiusM").toDouble() );
+		mCurvature = 1.0/RandGen::instance()->generateF( SettingsManager::instance()->value("road/bendMinRadiusM").toDouble(), SettingsManager::instance()->value("road/bendMaxRadiusM").toDouble() );
 		// check for max turn and adjust length if necessary
 		double maxTurnRad = SettingsManager::instance()->value("road/bendMaxTurnDegree").toDouble() / 180.0 * M_PI;
-		if( maxTurnRad * mRadius < mLength )
-			{ mLength = maxTurnRad * mRadius; }
-		if( RandGen::instance()->generateF() > 0.5 ) { mRadius *= -1; }
+		if( maxTurnRad / mCurvature < mLength )
+			{ mLength = maxTurnRad / mCurvature; }
+		if( RandGen::instance()->generateF() > 0.5 ) { mCurvature *= -1; }
 	}
 
-	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mOdoStartLoc).arg( mLength ).arg(mRadius);
+	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mStartLoc.parameter).arg( mLength ).arg(radius());
 }
 
-RoadSegment::RoadSegment(double odoStartLoc, double radius, double length, double startWidth, double endWidth) :
-	mSegmentId(++segmentCounter), mOdoStartLoc(odoStartLoc), mRadius(radius), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
+RoadSegment::RoadSegment(long segmentId, roadLocation_t startRoadParam, double curvature, double length, double startWidth, double endWidth) :
+	mSegmentId(segmentId), mStartLoc(startRoadParam), mCurvature(curvature), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
 {
 	initSettings();
 
-	if( mRadius != 0 )
+	if( mCurvature != 0 )
 	{
 		double maxTurnRad = SettingsManager::instance()->value("road/bendMaxTurnDegree").toDouble() / 180.0 * M_PI;
-		if( maxTurnRad * fabs(mRadius) < mLength )
-			{ mLength = maxTurnRad * mRadius; }
+		if( maxTurnRad / fabs(mCurvature) < mLength )
+			{ mLength = maxTurnRad / mCurvature; }
 	}
 }
 
@@ -55,9 +56,46 @@ double RoadSegment::length() const
 	return mLength;
 }
 
-double RoadSegment::widthAt(const double metersFromSegmentStart) const
+double RoadSegment::widthAt(const double roadParamFromSegmentStart) const
 {
-	return mStartWidth + (mEndWidth-mStartWidth) * (metersFromSegmentStart/mLength);
+	return mStartWidth + (mEndWidth-mStartWidth) * (roadParamFromSegmentStart/mLength);
+}
+
+RoadSegment::roadLocation_t RoadSegment::endLocation( double paramFromSegmentStart ) const
+{
+	QVector2D deltaPos;
+	roadLocation_t endLoc;
+	double alpha = paramFromSegmentStart*mCurvature;
+
+	if( mCurvature == 0.0 )
+	{
+		deltaPos.setX(0.0);
+		deltaPos.setY(paramFromSegmentStart);
+	}
+	else
+	{
+		deltaPos.setX( (1-cos(alpha)) / mCurvature );
+		deltaPos.setY( sin(alpha) / mCurvature );
+	}
+	// rotate with current heading
+	if( mStartLoc.heading != 0.0 )
+	{
+		double rotAngle = -mStartLoc.heading;
+		deltaPos.setX( deltaPos.x()*cos(rotAngle) + deltaPos.y()*sin(rotAngle) );
+		deltaPos.setX( -deltaPos.x()*sin(rotAngle) + deltaPos.y()*cos(rotAngle) );
+	}
+
+	endLoc.parameter = mStartLoc.parameter + paramFromSegmentStart;
+	endLoc.x = mStartLoc.x + deltaPos.x();
+	endLoc.y = mStartLoc.y + deltaPos.y();
+	endLoc.heading += alpha;
+
+	return endLoc;
+}
+
+RoadSegment::roadLocation_t RoadSegment::endLocation() const
+{
+	return endLocation(mLength);
 }
 
 RoadSegment &RoadSegment::operator=(const RoadSegment &other)
@@ -68,8 +106,8 @@ RoadSegment &RoadSegment::operator=(const RoadSegment &other)
 RoadSegment &RoadSegment::copy(const RoadSegment &other)
 {
 	mSegmentId = other.mSegmentId;
-	mOdoStartLoc = other.mOdoStartLoc;
-	mRadius = other.mRadius;
+	mStartLoc = other.mStartLoc;
+	mCurvature = other.mCurvature;
 	mLength = other.mLength;
 	mStartWidth = other.mStartWidth;
 	mEndWidth = other.mEndWidth;

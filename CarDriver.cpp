@@ -9,44 +9,90 @@
 const double CarDriver::obstacleAvoidanceDistance = 0.5;
 
 CarDriver::CarDriver(Car *car, RoadGenerator *roadGen, QObject *parent) : QObject(parent),
-	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed), mCarCrossPos(0), mAccelerationMode(ProportionalAcceleration),
+	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed), mTargetCrossPos(0.0), mAccelerationMode(ProportionalAcceleration),
 	mThreats({0,0}), mCrashed(false), mTractionLost(false), mBendMaxSpeedSafetyFactor(0.8)
 {
 
 }
 
-void CarDriver::simUpdate(const quint64 simTime)
+//void CarDriver::updateCarLocation(double odometer, double previousOdometer, const RoadSegment *rSeg)
+//{
+//	// car
+//	double dOdoCar = odometer - previousOdometer;
+//	double carTurnC = mCar->turnCurvature();
+//	double dHeadingCar = dOdoCar*carTurnC;
+//	// define for carTurnC == 0.0
+//	double dPtc = dOdoCar;
+//	double dPnc = 0;
+//	if( carTurnC != 0.0 )
+//	{
+//		dPtc = sin(dHeadingCar)/carTurnC;
+//		dPnc = (1-cos(dHeadingCar))/carTurnC;
+//	}
+//	// rotate with current heading (dPt is x coord, dPc is y, rotate around (0,0) with mCarLocation.heading)
+//	dPnc = dPnc*cos(mCarLocation.heading) + dPtc*sin(mCarLocation.heading);
+//	dPtc = -dPnc*sin(mCarLocation.heading) + dPtc*cos(mCarLocation.heading);
+
+//	// road
+//	double roadC = rSeg->curvature();
+//	double roadDeltaOdo = dOdoCar;
+//	double dHeadingRoad = roadDeltaOdo*roadC;
+//	double dPtr = dOdoCar;
+//	double dPnr = 0;
+//	if( roadC != 0.0 )
+//	{
+//		roadDeltaOdo = atan(dPtc/(1/roadC-dPnc)) / roadC;
+//		dPtr = sin(dHeadingRoad)/roadC;
+//		dPnr = (1-cos(dHeadingRoad))/roadC;
+//	}
+
+//	mCarLocation.tangent += roadDeltaOdo;
+//	mCarLocation.heading += dHeadingCar - dHeadingRoad;
+//	// normal pos change is a bit more complicated, as we have to find the distance from the road centerline
+//	// along the line _perpendicular_ to the centerline at the point of roadDeltaOdo (see "road advancement" in calculation notes)
+//	QVector2D dCarPos( dPnc, dPtc );
+//	QVector2D dRoadPos( dPnr, dPtr );
+//	QVector2D dCarMinusRoad = dCarPos - dRoadPos;
+//	if( dCarMinusRoad.x() < 0 )
+//		{ mCarLocation.normal -= dCarMinusRoad.length(); }
+//	else
+//		{ mCarLocation.normal += dCarMinusRoad.length(); }
+//}
+
+void CarDriver::simUpdate(const quint64 simTime, const double travel, const double carCrossPosOnRoad, const double carHeadingOnRoad)
 {
+	Q_UNUSED(simTime);
+
 	// some facts
 	double currentSpeed = mCar->speed();
 	QVector2D currentAcceleration = currentNetAccel();
-	double odometer = mCar->odometer();
 	double maxAccelAllowedByFriction = mCar->frictionCoeffStatic() * 9.81;
 
 	if( currentAcceleration.length() > maxAccelAllowedByFriction && !mTractionLost )
 	{
 		mTractionLost = true;
-		emit tractionLost(odometer);
-		qWarning() << "TRACTION LOST at odo=" << odometer;
+		emit tractionLost(travel);
+		qWarning() << "TRACTION LOST at travel=" << travel;
 	}
 
-	/* --- FEATURE POINT GENERATION -------------------------------------------------------------------*/
-	QQueue<RoadSegment> visibleRoad( mRoadGen->visibleRoad(odometer) );
-	QQueue<RoadObstacle> visibleObstacles( mRoadGen->visibleObstacles(odometer) );
+	/* === FEATURE POINT GENERATION ============================================================*/
+	QQueue<RoadSegment> visibleRoad( mRoadGen->visibleRoad(travel) );
+	QQueue<RoadObstacle> visibleObstacles( mRoadGen->visibleObstacles(travel) );
 	static double featurePointGenHorizon = 0;
 
+	// scan road, generate featurePoints
 	for( int i=0; i<visibleRoad.size(); ++i )
 	{
 		// find the segment at featurePointGenHorizon
-		if( visibleRoad.at(i).odoStartLoc() >= featurePointGenHorizon )
+		if( visibleRoad.at(i).startLocation().parameter >= featurePointGenHorizon )
 		{
 			const RoadSegment *seg = &visibleRoad.at(i);
 			roadFeaturePoint *rfp = new roadFeaturePoint;
-			rfp->odoPos = seg->odoStartLoc();
+			rfp->roadParam = seg->startLocation().parameter;
 			if( seg->isBend() )
 			{
 				rfp->type = BendStartFeaturePoint;
-				rfp->radius = seg->radius();
+				rfp->curvature = seg->curvature();
 				rfp->maxSpeed = sqrt( maxAccelAllowedByFriction * seg->radiusAbs() ) * mBendMaxSpeedSafetyFactor;
 			}
 			else
@@ -57,7 +103,45 @@ void CarDriver::simUpdate(const quint64 simTime)
 			mRoadFeaturePoints.append(rfp);
 		}
 	}
-	featurePointGenHorizon = visibleRoad.last().odoEndLoc();
+	// scan obstacles, generate featurePoints
+	for( int i=0; i<visibleObstacles.size(); ++i )
+	{
+		// find the segment at featurePointGenHorizon
+		if( visibleObstacles.at(i).roadParam() >= featurePointGenHorizon )
+		{
+			const RoadObstacle *obst = &visibleObstacles.at(i);
+			const RoadSegment *segAtObst = mRoadGen->segmentAt(obst->roadParam());
+			if( !segAtObst )
+			{
+				qWarning() << "No segment at obstacle@"<<obst->roadParam();
+				continue;
+			}
+			roadFeaturePoint *rfp = new roadFeaturePoint;
+			rfp->type = ObstacleFeaturePoint;
+			rfp->roadParam = obst->roadParam();
+			rfp->crossPos = obst->normalPos()*segAtObst->widthAt( obst->roadParam()-segAtObst->startLocation().parameter )/2;
+			rfp->size = obst->size();
+			rfp->maxSpeed = mCruiseSpeed;	// TODO is this OK?
+			//insertRoadFeaturePoint( rfp );
+		}
+	}
+	featurePointGenHorizon = visibleRoad.last().endRoadParam();
+
+	// OBSTACLE AVOIDANCE
+	// search for the nearest obstacle that is on a collision course and set target crossPos to avoid
+	for( int i=0; i<mRoadFeaturePoints.size(); ++i )
+	{
+		roadFeaturePoint *rfp =  mRoadFeaturePoints.at(i);
+		if( rfp->type == ObstacleFeaturePoint && rfp->roadParam > travel )
+		{
+			double targetCrossPosToAvoid = calculateObstacleAvoidancePoint( carCrossPosOnRoad, rfp->roadParam, rfp->crossPos, rfp->size );
+			if( targetCrossPosToAvoid != carCrossPosOnRoad )
+			{
+				mTargetCrossPos = targetCrossPosToAvoid;
+				break;
+			}
+		}
+	}
 
 	/* SPEED & ACCELERATION CONTROL. ==============================================================================================================
 	 * Algorithm: the following sequence is followed:
@@ -67,19 +151,16 @@ void CarDriver::simUpdate(const quint64 simTime)
 	 * - if a brakePoint reached, set MaxAccel method and targetSpeed of the featurePoint belonging to the brakePoint
 	 * */
 
-	double unavoidableTractionLossAtOdo = -1.0;
-	double unavoidableCrashAtOdo = -1.0;
+	double unavoidableTractionLossAtTravel = -1.0;
+	double unavoidableCrashAtTravel = -1.0;
 
 	//more facts
-	double centripetalAccel = currentAcceleration.x();
-	double maxTangentialAccel;
-	if( pow(maxAccelAllowedByFriction,2) < pow(centripetalAccel,2) )
-		{ maxTangentialAccel = 0; }
-	else
-		{ maxTangentialAccel = sqrt( pow(maxAccelAllowedByFriction,2) - pow(centripetalAccel,2) ); }
-	if( maxTangentialAccel < 0.05 )
-		{ qWarning() << "Max possible tangential accel is practically zero!"; }
-	double maxSafeTangentialAccel = maxTangentialAccel * 0.95; // don't go on the limit
+	double currentCentripetalAccel = currentAcceleration.x();
+	Car::accelDecelPair_t maxTangentialAccel = mCar->maxTangentialAcceleration(currentCentripetalAccel);
+	if( maxTangentialAccel.deceleration < 0.05 )
+		{ qWarning() << "Max possible tangential decel is practically zero!"; }
+	Car::accelDecelPair_t maxSafeTangentialAccel( maxTangentialAccel.acceleration * 0.95,
+												maxTangentialAccel.deceleration * 0.95 ); // don't go on the limit
 	qInfo() << "accVect=" << currentAcceleration;
 	qInfo() << "speed=" << currentSpeed*3.6;
 
@@ -87,36 +168,33 @@ void CarDriver::simUpdate(const quint64 simTime)
 	roadFeaturePoint *lastPassedFP = nullptr;
 	for( int i=0; i<mRoadFeaturePoints.size(); ++i )
 	{
-		if( mRoadFeaturePoints.at(i)->odoPos < odometer )
+		if( mRoadFeaturePoints.at(i)->roadParam < travel )
 			{ lastPassedFP = mRoadFeaturePoints.at(i); }
 	}
 	if( lastPassedFP )
 	{
 		mAccelerationMode = ProportionalAcceleration;
 		mTargetSpeed = qBound(0.0,lastPassedFP->maxSpeed,mCruiseSpeed);
-		qInfo() << "Passed FeaturePoint@"<<lastPassedFP->odoPos<<", set targetSpeed="<<mTargetSpeed;
+		qInfo() << "Passed FeaturePoint@"<<lastPassedFP->roadParam<<", set targetSpeed="<<mTargetSpeed;
 
 		// TODO work on this
-		if( lastPassedFP->type == BendStartFeaturePoint )
-			{ mCar->steerForTurnRadius(lastPassedFP->radius); }
-		else if( lastPassedFP->type == StraightStartFeaturePoint )
-			{ mCar->steer(0); }
+		mCar->steerForTurnCurvature(lastPassedFP->curvature);
 	}
 
 	// Search for and set nearest brakePoint -------------------------------------------------------------------------
-	double nearestBrakePointOdo = -1;
+	double nearestBrakePointRoadParam = -1;
 	roadFeaturePoint *featurePointOfNearestBrake = nullptr;
 	bool brakeSetCopyOfFeaturePointOfNearestBrake = false;
 	for( int i=0; i<mRoadFeaturePoints.size(); ++i )
 	{
 		if( mRoadFeaturePoints.at(i)->maxSpeed < currentSpeed )
 		{
-			double decelTimeForNextBend = (currentSpeed-mRoadFeaturePoints.at(i)->maxSpeed) / maxSafeTangentialAccel;
-			double decelDistance = currentSpeed*decelTimeForNextBend - maxSafeTangentialAccel * pow(decelTimeForNextBend,2) / 2; // minus, because deceleration
-			double brakeOdoPoint = mRoadFeaturePoints.at(i)->odoPos - decelDistance;
-			if( nearestBrakePointOdo < 0 || brakeOdoPoint < nearestBrakePointOdo )
+			double decelTimeForNextBend = (currentSpeed-mRoadFeaturePoints.at(i)->maxSpeed) / maxSafeTangentialAccel.deceleration;
+			double decelDistance = currentSpeed*decelTimeForNextBend - maxSafeTangentialAccel.deceleration * pow(decelTimeForNextBend,2) / 2; // minus, because deceleration
+			double brakeAtRoadParam = mRoadFeaturePoints.at(i)->roadParam - decelDistance;
+			if( nearestBrakePointRoadParam < 0 || brakeAtRoadParam < nearestBrakePointRoadParam )
 			{
-				nearestBrakePointOdo = brakeOdoPoint;
+				nearestBrakePointRoadParam = brakeAtRoadParam;
 				featurePointOfNearestBrake = mRoadFeaturePoints.at(i);
 				brakeSetCopyOfFeaturePointOfNearestBrake = featurePointOfNearestBrake->brakePointSet;
 				featurePointOfNearestBrake->brakePointSet = true;
@@ -125,7 +203,7 @@ void CarDriver::simUpdate(const quint64 simTime)
 	}
 
 	// this section is active from the detection of the feature/brake point till car reaches target speed
-	if( featurePointOfNearestBrake && nearestBrakePointOdo < odometer )
+	if( featurePointOfNearestBrake && nearestBrakePointRoadParam < travel )
 	{
 		if( !brakeSetCopyOfFeaturePointOfNearestBrake )
 		{ // set threat signals
@@ -134,14 +212,14 @@ void CarDriver::simUpdate(const quint64 simTime)
 				if( featurePointOfNearestBrake->type == BendStartFeaturePoint )
 				{
 					++mThreats.tractionLoss;
-					if( unavoidableTractionLossAtOdo < 0 || unavoidableTractionLossAtOdo > featurePointOfNearestBrake->odoPos )
-						{ unavoidableTractionLossAtOdo = featurePointOfNearestBrake->odoPos; }
+					if( unavoidableTractionLossAtTravel < 0 || unavoidableTractionLossAtTravel > featurePointOfNearestBrake->roadParam )
+						{ unavoidableTractionLossAtTravel = featurePointOfNearestBrake->roadParam; }
 				}
 				else
 				{
 					++mThreats.crash;
-					if( unavoidableCrashAtOdo < 0 || unavoidableCrashAtOdo > featurePointOfNearestBrake->odoPos )
-						{ unavoidableCrashAtOdo = featurePointOfNearestBrake->odoPos; }
+					if( unavoidableCrashAtTravel < 0 || unavoidableCrashAtTravel > featurePointOfNearestBrake->roadParam )
+						{ unavoidableCrashAtTravel = featurePointOfNearestBrake->roadParam; }
 				}
 			}
 			else
@@ -155,8 +233,6 @@ void CarDriver::simUpdate(const quint64 simTime)
 	// calculate acceleration -------------------------------------------------------------------------
 	double actualAcceleration = 0;
 	double speedError = mTargetSpeed - currentSpeed;
-	short int accelSign = 1;
-	if( speedError < 0 ) {  accelSign = -1; }
 
 	static double previousSpeed = 0;
 
@@ -168,158 +244,124 @@ void CarDriver::simUpdate(const quint64 simTime)
 			actualAcceleration = 0.0;
 		}
 		else
-			{ actualAcceleration = accelSign * maxSafeTangentialAccel; }
+		{
+			if( speedError < 0.0 )
+				{ actualAcceleration = -maxSafeTangentialAccel.deceleration; }
+			else if( speedError > 0.0 )
+				{ actualAcceleration = maxSafeTangentialAccel.acceleration; }
+			else	// double equality? ...eh... not so critical here
+				{ actualAcceleration = 0.0; }
+		}
 	}
 	else if( mAccelerationMode == ProportionalAcceleration )
 	{
-		actualAcceleration = qBound(-maxSafeTangentialAccel, speedError * 0.8, maxSafeTangentialAccel);	// P controller
+		actualAcceleration = qBound(-maxSafeTangentialAccel.deceleration, speedError * 0.8, maxSafeTangentialAccel.acceleration);	// P controller
 	}
+
+	previousSpeed = currentSpeed;
+
+	/* CROSS-POSITION CONTROL ====================================================================================
+	 * -*/
+//	double crossPosError = mTargetCrossPos - mCarLocation.normal;
+//	double steerAngleRad = crossPosError * 0.01;
+//	double minTurnCurvatureWithCurrentSpeed = (mCar->frictionCoeffStatic()*9.81)/pow(currentSpeed,2)*0.95;	// *0.95 for safety
+//	double maxWheelAngleWithCurrentSpeed = mCar->wheelAngleAtTurnCurvature(minTurnCurvatureWithCurrentSpeed);
+//	if( steerAngleRad > maxWheelAngleWithCurrentSpeed )
+//		{ steerAngleRad = maxWheelAngleWithCurrentSpeed; }
+//	else if( steerAngleRad < -maxWheelAngleWithCurrentSpeed )
+//		{ steerAngleRad = -maxWheelAngleWithCurrentSpeed; }
+//	mCar->steer( steerAngleRad );
+//	qInfo() << "Steer(deg): " << steerAngleRad/M_PI*180.0;
 
 	// set car params -------------------------------
 	mCar->accelerate( actualAcceleration );
 	qInfo() << "Set car acc: " << actualAcceleration;
+	qInfo() << "Car wheelAngle (deg): " << mCar->wheelAngle()/M_PI*180.0;
 
 	// end stuff -----------------------------
 
 	// signal threats
 	if( !mTractionLost && mThreats.tractionLoss > 0 )
 	{
-		qWarning() << "Unavoidable traction loss at odo " << unavoidableTractionLossAtOdo;
-		emit unavoidableTractionLossDetected(unavoidableTractionLossAtOdo);
+		qWarning() << "Unavoidable traction loss at travel " << unavoidableTractionLossAtTravel;
+		emit unavoidableTractionLossDetected(unavoidableTractionLossAtTravel);
 	}
 	if( !mCrashed && mThreats.crash > 0 )
 	{
-		qWarning() << "Unavoidable crash at odo " << unavoidableCrashAtOdo;
-		emit unavoidableCrashDetected(unavoidableCrashAtOdo);
+		qWarning() << "Unavoidable crash at travel " << unavoidableCrashAtTravel;
+		emit unavoidableCrashDetected(unavoidableCrashAtTravel);
 	}
 	mThreats.tractionLoss = 0;
 	mThreats.crash = 0;
 
 	// delete left-behind feature point(s)
-	while( !mRoadFeaturePoints.isEmpty() && mRoadFeaturePoints.first()->odoPos < odometer )
+	while( !mRoadFeaturePoints.isEmpty() && mRoadFeaturePoints.first()->roadParam < travel )
 		{ delete mRoadFeaturePoints.takeFirst(); }
-
-	previousSpeed = currentSpeed;
 
 	qInfo() << "------------------------------------------------------";
 }
 
-void CarDriver::planTrajectory(double odometer)
+double CarDriver::calculateObstacleAvoidancePoint( const double carCrossPos, const double obstRoadParam, const double obstCrossPos, const double obstSize )
 {
-	/* TRAJECTORY PLANNING
-	*  Start from the end of the current trajectory, and check if there is road ahead of trajectory.
-	*  If so, lengthen the trajectory or append a new section if another section type is needed.*/
-
-	QQueue<RoadSegment> visibleRoad( mRoadGen->visibleRoad(odometer) );
-	QPointF trajEndPoint(mTrajectory.last()->endPos());
-	double trajectoryOdoEndLoc = trajEndPoint.y();
-	TrajectorySection *lastTrajSection = mTrajectory.last();
-	while( qAbs(visibleRoad.last().odoEndLoc()-trajectoryOdoEndLoc) > 0.01 )	// try to avoid exact floating point number comparison...
-	{
-		// get the segment at the trajectory end
-		const RoadSegment *segAtTrajEnd = nullptr;
-		for( int i=0; i<visibleRoad.size(); ++i )
-		{
-			// if trajectory planning doesn't advance her, couse of float rounding errors, the trajectory never reaches the road end,
-			// implement roadSegment and trajectorySection indexing
-			if( (visibleRoad.at(i).odoStartLoc()<=trajectoryOdoEndLoc) && (visibleRoad.at(i).odoEndLoc()>trajectoryOdoEndLoc) )
-			{
-				segAtTrajEnd = &visibleRoad.at(i);
-				break;
-			}
-		}
-
-		if( !segAtTrajEnd )
-		{
-			qWarning() << "No roadSegment at trajectory end! Weird... (float overrounding?)";
-			break;
-		}
-
-		if( segAtTrajEnd->isBend() )
-		{
-			/* there could be BendLaneShift here as well, but as laneShift is generated only if it has an endpoint,
-			 * it cannot be continued, so a new segment must be appended regardless.*/
-			if( (lastTrajSection->type() == TrajectorySection::BendSection) &&
-				( ((TrajectorySectionBend*)lastTrajSection)->radius() == segAtTrajEnd->radius() ) )
-			{
-				//continue bendsection
-				lastTrajSection->setLength( segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc );
-			}
-			else
-			{
-				// append bendsection
-				mTrajectory.append( new TrajectorySectionBend(trajEndPoint, segAtTrajEnd->radius(), segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc) );
-			}
-
-		}
-		else
-		{
-			// again, BendLaneShift cannot be continued, so a new segment must be appended regardless.
-			if( lastTrajSection->type() != TrajectorySection::StraightSection )
-			{
-				mTrajectory.append( new TrajectorySectionStraight(trajEndPoint, segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc) );
-			}
-			else
-			{
-				// continue straight section
-				lastTrajSection->setLength( segAtTrajEnd->odoEndLoc()-trajectoryOdoEndLoc );
-			}
-		}
-	}
-}
-
-double CarDriver::odoEndOfTrajectory() const
-{
-	return mTrajectory.last()->endPos().y();
-}
-
-double CarDriver::calculateObstacleAvoidancePoint( const RoadObstacle* obstacle )
-{
-	const RoadSegment *roadSegmentAtObstacle = mRoadGen->segmentAtOdo(obstacle->odoPos());
+	const RoadSegment *roadSegmentAtObstacle = mRoadGen->segmentAt(obstRoadParam);
 	if( !roadSegmentAtObstacle )
 	{
-		qWarning() << "No roadSegment at obstacle@"<<obstacle->odoPos();
+		qWarning() << "No roadSegment at obstacle@"<<obstRoadParam;
 		return 0.0;
 	}
-	double roadWidth = roadSegmentAtObstacle->widthAt( obstacle->odoPos()-roadSegmentAtObstacle->odoStartLoc() );
-	double obstacleCrossPos = obstacle->normalPos()*roadWidth/2;
+	double roadWidth = roadSegmentAtObstacle->widthAt( obstRoadParam-roadSegmentAtObstacle->startLocation().parameter );
 
-	double obstacleCrossPosRelToCar = mCarCrossPos - obstacleCrossPos;
-	double minDistanceToObst = (obstacle->size()/2+mCar->size().width()/2+obstacleAvoidanceDistance);
-	double targetPoint = mCarCrossPos;
+	double obstacleCrossPosRelToCar = carCrossPos - obstCrossPos;
+	double minDistanceToObst = (obstSize/2+mCar->size().width()/2+obstacleAvoidanceDistance);
+
+	double targetPoint = carCrossPos;	// init
 
 	// do we crash into it?
 	if( qAbs(obstacleCrossPosRelToCar) < minDistanceToObst )
 	{ // we are on a crash trajectory!
-		QLineF spaceOnLeft(-roadWidth/2,0, obstacleCrossPos-obstacle->size()/2,0);
-		QLineF spaceOnRight(obstacleCrossPos+obstacle->size()/2,0, roadWidth/2,0 );
+		QLineF spaceOnLeft(-roadWidth/2,0, obstCrossPos-obstSize/2,0);
+		QLineF spaceOnRight(obstCrossPos+obstSize/2,0, roadWidth/2,0 );
 		double neededSpace = mCar->size().width()+obstacleAvoidanceDistance;
 
 		// Dooooooooooooooooomed?
 		if( spaceOnRight.length() < neededSpace && spaceOnLeft.length() < neededSpace)
 		{
-			qWarning() << "Car doesn't fit on either side of obstacle (@" << obstacle->odoPos() << ")!";
-			emit unavoidableCrashDetected(obstacle->odoPos());
+			qWarning() << "Car doesn't fit on either side of obstacle (@" << obstRoadParam << ")!";
+			emit unavoidableCrashDetected(obstRoadParam);
 			return targetPoint;
 		}
 
 		// then let's offset!
-		double targetPosRelToObstacle = obstacle->size()/2+obstacleAvoidanceDistance+mCar->size().width()/2;
+		double targetPosRelToObstacle = obstSize/2+obstacleAvoidanceDistance+mCar->size().width()/2;
 
 		// do we fit in the space on this side if we offset? If not, offset to the other way...
 		if( obstacleCrossPosRelToCar >= 0 )
-			{ targetPosRelToObstacle *= -1; }
-		if( spaceOnRight.length() >= neededSpace )
 		{
-			targetPoint = obstacleCrossPos+targetPosRelToObstacle;
+			if( spaceOnLeft.length() >= neededSpace )
+				{ targetPosRelToObstacle *= -1; }
 		}
 		else
 		{
-			targetPoint = obstacleCrossPos-targetPosRelToObstacle;
+			if( spaceOnRight.length() < neededSpace )
+				{ targetPosRelToObstacle *= -1; }
 		}
+		targetPoint = obstCrossPos+targetPosRelToObstacle;
 	}
 
 	return targetPoint;
+}
+
+void CarDriver::insertRoadFeaturePoint(CarDriver::roadFeaturePoint *rfp)
+{
+	int i = 0;
+	for( ; i<mRoadFeaturePoints.size(); ++i )
+	{
+		if( mRoadFeaturePoints.at(i)->roadParam > rfp->roadParam )
+		{
+			break;
+		}
+	}
+	mRoadFeaturePoints.insert(i, rfp);
 }
 
 double CarDriver::currentCentripetalAccel() const
@@ -337,10 +379,10 @@ double CarDriver::currentCentripetalAccel() const
 //		{ currentCentripetalAccel = pow(mCar->speed(),2) / currentRoadRadius; }
 //	return currentCentripetalAccel;
 
-	double currentRoadRadius = mCar->turnRadius();
+	double currentTurnCurvature = mCar->turnCurvature();
 	double currentCentripetalAccel = 0;
-	if( currentRoadRadius != 0 )
-		{ currentCentripetalAccel = pow(mCar->speed(),2) / currentRoadRadius; }
+	if( currentTurnCurvature != 0 )
+		{ currentCentripetalAccel = pow(mCar->speed(),2) * currentTurnCurvature; }
 	return currentCentripetalAccel;
 }
 
@@ -353,7 +395,7 @@ QVector2D CarDriver::currentNetAccel() const
 
 double CarDriver::currentMaxPossibleSpeedOnBend() const
 {
-	const RoadSegment *currentRoadSegment = mRoadGen->segmentAtOdo(mCar->odometer());
+	const RoadSegment *currentRoadSegment = mRoadGen->segmentAt(mCar->odometer());
 	if( !currentRoadSegment )
 	{
 		qWarning("No current roadSegment in CarDriver::currentMaxPossibleSpeedOnBend()!");

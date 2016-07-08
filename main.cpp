@@ -22,7 +22,7 @@ void myMessageOutput(QtMsgType type, const QMessageLogContext &context, const QS
 		stdOutStream << msg << endl;
 		break;
 	case QtWarningMsg:
-		stdErrStream << msg << endl;
+		stdErrStream << msg << " @" << context.file <<":"<< context.line << endl;
 		break;
 	case QtCriticalMsg:
 		stdErrStream << msg << " @" << context.file <<":"<< context.line << "|"<< context.function << endl;

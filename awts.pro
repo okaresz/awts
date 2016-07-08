@@ -16,9 +16,7 @@ SOURCES += main.cpp \
     SimulatorView.cpp \
     CarDriver.cpp \
     Car.cpp \
-    RoadObstacle.cpp \
-    TrajectoryPlanner.cpp \
-    TrajectorySection.cpp
+    RoadObstacle.cpp
 
 HEADERS += \
     RoadGenerator.h \
@@ -30,10 +28,9 @@ HEADERS += \
     SimulatorView.h \
     CarDriver.h \
     Car.h \
-    RoadObstacle.h \
-    TrajectoryPlanner.h \
-    TrajectorySection.h
+    RoadObstacle.h
 
 DISTFILES += \
     images/car.png \
-    README
+    README \
+    TODO.md

@@ -56,11 +56,11 @@ void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, do
 	centerLinePen.setColor(Qt::white);
 	centerLinePen.setWidthF(centerLineWidth);
 	centerLinePen.setCapStyle(Qt::FlatCap);
-	centerLinePen.setDashOffset((segment->odoStartLoc()+segment->length()*paintFromNormalPos)/centerLineWidth);
+	centerLinePen.setDashOffset((segment->startLocation().parameter+segment->length()*paintFromNormalPos)/centerLineWidth);
 
 	if( segment->isBend() )
 	{
-		double width = segment->widthAt(0);
+		double width = segment->widthAt(0.0);
 		{	// road body and centerline
 			double radiusAbs = segment->radiusAbs();
 			double radius = segment->radius();
@@ -164,7 +164,7 @@ void SimulatorView::paintRoadSegment(QPainter *painter, RoadSegment *segment, do
 	}
 }
 
-void SimulatorView::paintRoadObstaclesOnSegment(QPainter *painter, const RoadGenerator *roadGen, RoadSegment *segment, double paintFromNormalPos, double odometer, double visibility)
+void SimulatorView::paintRoadObstaclesOnSegment(QPainter *painter, const RoadGenerator *roadGen, RoadSegment *segment, double paintFromNormalPos, double travel, double visibility)
 {
 	QColor obstacleColor(200,20,20);
 	QBrush obstacleBrush(obstacleColor,Qt::SolidPattern);
@@ -175,13 +175,13 @@ void SimulatorView::paintRoadObstaclesOnSegment(QPainter *painter, const RoadGen
 	for( int i=0; i<obstacles->size(); ++i )
 	{
 		RoadObstacle *obst = obstacles->at(i);
-		if( !( obst->odoPos() > odometer &&
-			   obst->odoPos() > segment->odoStartLoc() &&
-			   obst->odoPos() < odometer+visibility &&
-			   obst->odoPos() < segment->odoEndLoc() ) )
+		if( !( obst->roadParam() > travel &&
+			   obst->roadParam() > segment->startLocation().parameter &&
+			   obst->roadParam() < travel+visibility &&
+			   obst->roadParam() < segment->endRoadParam() ) )
 			{ continue; }
 
-		double obstaclePosAlongPathFromOrigin = obst->odoPos() - segment->odoStartLoc() - (segment->length()*paintFromNormalPos);
+		double obstaclePosAlongPathFromOrigin = obst->roadParam() - segment->startLocation().parameter - (segment->length()*paintFromNormalPos);
 		QPointF obstaclePos;
 		if( segment->isBend() )
 		{
@@ -200,7 +200,7 @@ void SimulatorView::paintRoadObstaclesOnSegment(QPainter *painter, const RoadGen
 	}
 }
 
-void SimulatorView::paintRoad( QPainter *painter, QPointF startPoint, double odometer, double visibility )
+void SimulatorView::paintRoad(QPainter *painter, QPointF startPoint, double travel, double visibility )
 {
 	if( mSimulator->roadGen()->segments()->isEmpty() )
 		{ return; }
@@ -210,20 +210,20 @@ void SimulatorView::paintRoad( QPainter *painter, QPointF startPoint, double odo
 	painter->scale(mPixelPerMeter,mPixelPerMeter);
 	QPointF endPoint = startPoint;
 	double endTangent = 0;
-	double horizon = odometer+visibility;
+	double horizon = travel+visibility;
 
-	for( int i=0; (i<mSimulator->roadGen()->segments()->size()) && (mSimulator->roadGen()->segments()->at(i)->odoStartLoc()<horizon); ++i )
+	for( int i=0; (i<mSimulator->roadGen()->segments()->size()) && (mSimulator->roadGen()->segments()->at(i)->startLocation().parameter<horizon); ++i )
 	{
 		RoadSegment *segment = mSimulator->roadGen()->segments()->at(i);
 		double paintFromNormalPos = 0.0;
-		if( segment->odoStartLoc() < odometer )
-			{ paintFromNormalPos = (odometer - segment->odoStartLoc()) / segment->length(); }
+		if( segment->startLocation().parameter < travel )
+			{ paintFromNormalPos = (travel - segment->startLocation().parameter) / segment->length(); }
 		double paintToNormalPos = 1.0;
-		if( segment->odoEndLoc() > horizon )
-			{ paintToNormalPos = (horizon - segment->odoStartLoc()) / segment->length(); }
+		if( segment->endRoadParam() > horizon )
+			{ paintToNormalPos = (horizon - segment->startLocation().parameter) / segment->length(); }
 
 		paintRoadSegment(painter, segment, paintFromNormalPos, paintToNormalPos, endPoint, endTangent);
-		paintRoadObstaclesOnSegment(painter, mSimulator->roadGen(), segment, paintFromNormalPos, odometer, visibility);
+		paintRoadObstaclesOnSegment(painter, mSimulator->roadGen(), segment, paintFromNormalPos, travel, visibility);
 
 		/* transform the coordinate system to the segment end (next segment start)
 		* and rotate so that current road tangent points always "upward"
@@ -239,7 +239,8 @@ void SimulatorView::paintEvent(QPaintEvent *event)
 {
 	Q_UNUSED(event);
 
-	double odometer = mSimulator->car()->odometer();
+	Simulator::carPositionOnRoad_t carPosOnRoad = mSimulator->carPositionOnRoad();
+	double travel = carPosOnRoad.travel;	// this is the advancement of the car on the road (relative to 0 milestone)
 	const double visibilityM = mSimulator->roadVisibility();
 
 	// init painting
@@ -254,21 +255,22 @@ void SimulatorView::paintEvent(QPaintEvent *event)
 
 	QPointF carCenter(viewPortSize.width()/2,viewPortSize.height()-20);
 	painter.translate(carCenter);
-	carCenter = QPointF(0.0,0.0);
+	carCenter = QPointF(carPosOnRoad.cross,0.0);
 
-	paintRoad( &painter, carCenter, odometer, visibilityM );
-	paintCar( &painter, carCenter, QSize(1.6*mPixelPerMeter,4.0*mPixelPerMeter) );
+	paintRoad( &painter, carCenter, travel, visibilityM );
+	paintCar( &painter, carCenter,carPosOnRoad.heading, QSize(1.6*mPixelPerMeter,4.0*mPixelPerMeter) );
 
 	painter.end();
 }
 
 
-void SimulatorView::paintCar(QPainter *painter, const QPointF carCenterPoint, const QSize carSize)
+void SimulatorView::paintCar(QPainter *painter, const QPointF carCenterPoint, const double carHeading, const QSize carSize)
 {
 	painter->save();
 
 	QPixmap carImg("../awts/images/car.png");
 	carImg = carImg.scaledToWidth(carSize.width());
+	painter->rotate(carHeading/M_PI*180.0);
 	QPoint carOrigin;
 	carOrigin.setX( carCenterPoint.x()-carSize.width()/2 );
 	carOrigin.setY( carCenterPoint.y()-carSize.height()/2 );
@@ -280,7 +282,7 @@ void SimulatorView::paintCar(QPainter *painter, const QPointF carCenterPoint, co
 	{
 		qWarning("Car pixmap could not be loaded! Falling back to rectangle.");
 		QPen pen(Qt::black);
-		pen.setWidth(1);
+		pen.setWidth(2);
 		painter->setPen(pen);
 		QBrush brush(QColor(0,127,0));
 		painter->setBrush(brush);

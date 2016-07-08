@@ -5,7 +5,6 @@
 #include "Car.h"
 #include "RoadGenerator.h"
 #include <QList>
-#include "TrajectorySection.h"
 #include <QVector2D>
 
 class CarDriver : public QObject
@@ -13,6 +12,13 @@ class CarDriver : public QObject
 	Q_OBJECT
 public:
 	explicit CarDriver( Car *car, RoadGenerator *roadGen, QObject *parent = 0);
+
+	struct carLocation_t
+	{
+		double tangent;	///< tangential position along the road
+		double normal; ///< norma position along the road in meters, from the road centerline
+		double heading; ///< heading of the car, relative to the road, 0 is going straight parallel to the road
+	};
 
 	double cruiseSpeedKmh() const;
 	double cruiseSpeedMps() const;
@@ -28,21 +34,18 @@ public:
 	double currentMaxPossibleSpeedOnBend() const;
 
 signals:
-	void tractionLost(double atOdoPos);
-	void unavoidableTractionLossDetected(double lossOdoPos);
-	void unavoidableCrashDetected(double crashOdoPos);
-	void crashed(double atOdoPos);
+	void tractionLost(double atTravel);
+	void unavoidableTractionLossDetected(double atTravel);
+	void unavoidableCrashDetected(double atTravel);
+	void crashed(double atTravel);
 
 public slots:
-	void simUpdate(const quint64 simTime);
+	void simUpdate(const quint64 simTime,const double travel,const double carCrossPosOnRoad, const double carHeadingOnRoad);
 
 private:
-	// trajectory stuff. Should move to separate class?...
-	void planTrajectory( double odometer );
-	double odoEndOfTrajectory() const;
 
 	// Calculate the cross-position on road where car should be when reaches obstacle
-	double calculateObstacleAvoidancePoint(const RoadObstacle *obstacle);
+	double calculateObstacleAvoidancePoint(const double carCrossPos, const double obstOdoPos, const double obstCrossPos, const double obstSize);
 
 	enum accelerationMode_t
 	{
@@ -53,7 +56,7 @@ private:
 	Car *mCar;
 	RoadGenerator *mRoadGen;
 	double mCruiseSpeed, mTargetSpeed;
-	double mCarCrossPos;	///< Normal (not tangent) car position across the road, in meters from the road center (signed).
+	double mTargetCrossPos; ///< Target cross position on road to follow with steering, in meters from the road center (signed).
 	accelerationMode_t mAccelerationMode;
 	struct threatAccumulator
 	{
@@ -68,8 +71,7 @@ private:
 	double mBendMaxSpeedSafetyFactor;
 	static const double obstacleAvoidanceDistance;	///< Avoid obstacles by this much between the car and the obstacle
 
-
-	QList<TrajectorySection*> mTrajectory;
+	// Feature point stuff
 
 	enum roadFeaturePointType
 	{
@@ -83,19 +85,27 @@ private:
 	{
 		roadFeaturePointType type;
 		bool brakePointSet; ///< driver algorithm has set a brakepoint for it at least once
-		double odoPos;	///< position of feature point along road.
-		double radius;	///< radius of the bend that the feature point belongs to.
+		double roadParam;	///< position of feature point along road.
+		double crossPos; ///< Position across the road (in meters, from the road centerline) (used with obstacles)
+		double curvature;	///< radius of the bend that the feature point belongs to.
 		double maxSpeed;	///< max speed from this feature point.
+		double size;		///< only for obstacle
 		roadFeaturePoint()
 		{
 			type = UnknownFeaturePoint;
 			brakePointSet = false;
-			odoPos = -1.0;
-			radius = 0.0;
+			roadParam = -1.0;
+			crossPos = 0.0;
+			curvature = 0.0;
 			maxSpeed = 0.0;
 		}
 	};
 	QList<roadFeaturePoint*> mRoadFeaturePoints;
+
+	/// Insert given point into the list, at the correct position so that point list is sorted (ascending) by odoPos.
+	void insertRoadFeaturePoint(roadFeaturePoint *rfp );
+
+	//void updateCarLocation(double odometer, double previousOdometer, const RoadSegment *rSeg);
 };
 
 #endif // CARDRIVER_H

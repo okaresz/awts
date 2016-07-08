@@ -3,8 +3,8 @@
 #include "SettingsManager.h"
 #include <QDebug>
 
-RoadObstacle::RoadObstacle(const double odoPosition, const double normalPosition, const double size) :
-	mOdoPos(odoPosition), mNormalPos(normalPosition), mSize(size)
+RoadObstacle::RoadObstacle(const double roadparam, const double normalPosition, const double size) :
+	mRoadParam(roadparam), mNormalPos(normalPosition), mSize(size)
 {
 	if( !SettingsManager::instance()->contains( "road/obstacleSizeMinM") )
 		{ SettingsManager::instance()->setValue("road/obstacleSizeMinM", 0.8); }
@@ -13,7 +13,7 @@ RoadObstacle::RoadObstacle(const double odoPosition, const double normalPosition
 
 	if( mNormalPos == 0.0 )
 	{
-		mNormalPos = RandGen::instance()->generateF( -1.0, 1.0 );
+		//mNormalPos = RandGen::instance()->generateF( -1.0, 1.0 );
 	}
 
 	if( mSize == 0.0 )
@@ -23,5 +23,5 @@ RoadObstacle::RoadObstacle(const double odoPosition, const double normalPosition
 					SettingsManager::instance()->value( "road/obstacleSizeMaxM").toDouble() );
 	}
 
-	qDebug() << QString("Road obstacle created ( @%1, normP=%2, size=%3 )").arg(mOdoPos).arg( mNormalPos ).arg(mSize);
+	qDebug() << QString("Road obstacle created ( @%1, normP=%2, size=%3 )").arg(mRoadParam).arg( mNormalPos ).arg(mSize);
 }
