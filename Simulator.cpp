@@ -2,6 +2,7 @@
 #include <QDateTime>
 #include <QTransform>
 #include "SettingsManager.h"
+#include <QDebug>
 
 Simulator::Simulator(QObject *parent) : QObject(parent),
 	mSimTime(0), mSimIntervalMs(50), mRoadVisibility(50.0), mRoadGen(mRoadVisibility), mDriver(&mCar,&mRoadGen), mCarPosOnRoad({0.0,0.0,0.0})
@@ -57,11 +58,13 @@ double Simulator::findTravel(double fromTravel, double &carCrossPos, double &car
 
 		QTransform roadCoordSys;
 		roadCoordSys.rotateRadians(roadLoc.heading);
-		roadCoordSys.translate(roadLoc.x,-roadLoc.y);
+		roadCoordSys.translate(-roadLoc.x,-roadLoc.y);
 
 		carPositionInRoadSys = roadCoordSys.map(QPointF(carLoc.x,carLoc.y));
 		travel += carPositionInRoadSys.y()/2;
 	} while( qAbs(carPositionInRoadSys.y()) > yPosEpsilon );
+
+	qInfo() << "RoadLoc: @" << roadLoc.parameter << "|" << roadLoc.x << "," << roadLoc.y << "/" << roadLoc.heading/M_PI*180.0;
 
 	carCrossPos = carPositionInRoadSys.x();
 	carHeading = carLoc.heading - roadLoc.heading;
@@ -77,11 +80,15 @@ void Simulator::simUpdate()
 	mCarPosOnRoad.cross = carCrossPosOnRoad;
 	mCarPosOnRoad.heading = carHeadingOnRoad;
 
+	qInfo() << "CarOnRoad: " << mCarPosOnRoad.cross << "/" << mCarPosOnRoad.heading;
+
 	mRoadGen.simUpdate(mSimTime,mCarPosOnRoad.travel);
 	mDriver.simUpdate(mSimTime,mCarPosOnRoad.travel,carCrossPosOnRoad,carHeadingOnRoad);
 	mCar.simUpdate(mSimTime);
 
 	emit simUpdated();
+
+	qInfo() << "###########################################";
 
 	mSimTime += mSimIntervalMs;
 }

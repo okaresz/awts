@@ -24,7 +24,7 @@ public:
 
 	RoadSegment(roadLocation_t startLocation);
 	/// constructor for copying another segment with modified parameters.
-	RoadSegment(long int segmentId, roadLocation_t startLocation, double curvature, double length, double startWidth, double endWidth);
+	RoadSegment(long int segmentId, roadLocation_t startRoadLocation, double curvature, double length, double startWidth, double endWidth);
 	RoadSegment( const RoadSegment &other );
 
 	/** Get segment length along the centerline.

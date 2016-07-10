@@ -15,13 +15,16 @@ void RoadGenerator::simUpdate(const quint64 simTime, const double travel)
 	Q_UNUSED(simTime);
 
 	//DEBUG
-//	mSegmentQueue.enqueue( new RoadSegment(endOfRoad(), 0.0, 10.0, 10.0, 10.0) );
-//	mSegmentQueue.enqueue( new RoadSegment(endOfRoad(), 60.0, 30.0, 10.0, 10.0) );
-//	mSegmentQueue.enqueue( new RoadSegment(endOfRoad(), 0.0, 10.0, 10.0, 10.0) );
-//	mObstacleQueue.enqueue( new RoadObstacle( 7, 0.1, 0.6 ) );
-//	mObstacleQueue.enqueue( new RoadObstacle( 28, 0.5, 1 ) );
-//	mObstacleQueue.enqueue( new RoadObstacle( 45, -0.8, 1.6 ) );
-//	return;
+	if( simTime == 0 )
+	{
+		mSegmentQueue.enqueue( new RoadSegment(1,{0.0,0.0,0.0,0.0}, 0.0, 20.0, 10.0, 10.0) );
+		mSegmentQueue.enqueue( new RoadSegment(2,mSegmentQueue.last()->endLocation(), 0.015, 100.0, 10.0, 10.0) );
+		mSegmentQueue.enqueue( new RoadSegment(3,mSegmentQueue.last()->endLocation(), 0.0, 120.0, 10.0, 10.0) );
+		//mObstacleQueue.enqueue( new RoadObstacle( 7, 0.1, 0.6 ) );
+		//mObstacleQueue.enqueue( new RoadObstacle( 28, 0.5, 1 ) );
+		//mObstacleQueue.enqueue( new RoadObstacle( 45, -0.8, 1.6 ) );
+		return;
+	}
 	//DEBUG END
 
 	// if necessary, add new segment
@@ -32,7 +35,7 @@ void RoadGenerator::simUpdate(const quint64 simTime, const double travel)
 			{ lastSegmentEndLocation = mSegmentQueue.last()->endLocation(); }
 		mSegmentQueue.enqueue( new RoadSegment(lastSegmentEndLocation) );
 
-		// generate obstcles for the new segment
+		// generate obstacles for the new segment
 		double obstacleprobabilityOnSegment = SettingsManager::instance()->value("road/obstacleprobabilityPerMeter").toDouble()*mSegmentQueue.last()->length();
 		int obstacleCount = (int)obstacleprobabilityOnSegment;
 		double remainderProbability = obstacleprobabilityOnSegment - (double)obstacleCount;

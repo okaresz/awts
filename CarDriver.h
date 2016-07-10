@@ -20,6 +20,14 @@ public:
 		double heading; ///< heading of the car, relative to the road, 0 is going straight parallel to the road
 	};
 
+	struct steeringControl_t
+	{
+		double targetCrossPos;	///< Target cross position on road to follow with steering, in meters from the road center (signed).
+		double P,I,D;
+		double feedForward;
+		double integratorSum;
+	};
+
 	double cruiseSpeedKmh() const;
 	double cruiseSpeedMps() const;
 	void setCruiseSpeedMps(double cruiseSpeedMps);
@@ -33,6 +41,9 @@ public:
 	QVector2D currentNetAccel() const;
 	double currentMaxPossibleSpeedOnBend() const;
 
+	steeringControl_t steeringControlParams() const
+		{ return mSteeringControl; }
+
 signals:
 	void tractionLost(double atTravel);
 	void unavoidableTractionLossDetected(double atTravel);
@@ -42,10 +53,14 @@ signals:
 public slots:
 	void simUpdate(const quint64 simTime,const double travel,const double carCrossPosOnRoad, const double carHeadingOnRoad);
 
-private:
+	void setSteeringControlP(const double P)
+		{ mSteeringControl.P = P; }
+	void setSteeringControlI(const double I)
+		{ mSteeringControl.I = I; }
+	void setSteeringControlD(const double D)
+		{ mSteeringControl.D = D; }
 
-	// Calculate the cross-position on road where car should be when reaches obstacle
-	double calculateObstacleAvoidancePoint(const double carCrossPos, const double obstOdoPos, const double obstCrossPos, const double obstSize);
+private:
 
 	enum accelerationMode_t
 	{
@@ -56,7 +71,7 @@ private:
 	Car *mCar;
 	RoadGenerator *mRoadGen;
 	double mCruiseSpeed, mTargetSpeed;
-	double mTargetCrossPos; ///< Target cross position on road to follow with steering, in meters from the road center (signed).
+	steeringControl_t mSteeringControl;
 	accelerationMode_t mAccelerationMode;
 	struct threatAccumulator
 	{
@@ -105,7 +120,9 @@ private:
 	/// Insert given point into the list, at the correct position so that point list is sorted (ascending) by odoPos.
 	void insertRoadFeaturePoint(roadFeaturePoint *rfp );
 
-	//void updateCarLocation(double odometer, double previousOdometer, const RoadSegment *rSeg);
+	// Calculate the cross-position on road where car should be when reaches obstacle
+	double calculateObstacleAvoidancePoint(const double carCrossPos, const double obstOdoPos, const double obstCrossPos, const double obstSize);
+
 };
 
 #endif // CARDRIVER_H

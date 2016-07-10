@@ -3,6 +3,7 @@
 #include <QSizeF>
 #include <QDateTime>
 #include <QVector2D>
+#include <QDebug>
 
 Car::Car(QObject *parent) : QObject(parent),
 	mMassKg(1000), mSizeM(1.6,4.0), mAccelLimitMpss(5.0), mFrictionCoeffStatic(0.2), mMaxWheelAngle(50.0/180.0*M_PI), mWeightRatioOnDrivenWheels(0.55),
@@ -51,7 +52,7 @@ void Car::decelerate(float decelerateMpss)
 }
 
 Car::accelDecelPair_t Car::maxTangentialAcceleration(const double currentCentripetalAcc) const
-{  // assuming 4WD
+{
 	double maxAccelAllowedByFriction = mFrictionCoeffStatic * 9.81;
 	double maxTangentialAccel = 0;
 	if( pow(maxAccelAllowedByFriction,2) > pow(currentCentripetalAcc,2) )
@@ -153,18 +154,22 @@ void Car::simUpdate(const quint64 simTime)
 		deltaPos.setX( (1-cos(alpha)) / turnCurv );
 		deltaPos.setY( sin(alpha) / turnCurv );
 	}
-	// rotate with current heading (watch the sign! geometric  rotation "to the left" is positive!)
+	qInfo() << "Car deltaPos: @d" << dOdo <<"; " << deltaPos << "turnCurvature: " << turnCurv;
+	// rotate (coord. sys) with current heading (watch the sign! geometric  rotation "to the left" is positive!, but rotating the coord. sys left is like rotating the point right...)
+	QVector2D deltaPosRot(deltaPos);
 	if( mLocation.heading != 0.0 )
 	{
-		double rotAngle = -mLocation.heading;
-		deltaPos.setX( deltaPos.x()*cos(rotAngle) + deltaPos.y()*sin(rotAngle) );
-		deltaPos.setY( -deltaPos.x()*sin(rotAngle) + deltaPos.y()*cos(rotAngle) );
+		double rotAngle = mLocation.heading;
+		deltaPosRot.setX( deltaPos.x()*cos(rotAngle) + deltaPos.y()*sin(rotAngle) );
+		deltaPosRot.setY( -deltaPos.x()*sin(rotAngle) + deltaPos.y()*cos(rotAngle) );
 	}
-
+	qInfo() << "Car deltaPos(rot): " << deltaPosRot;
 	mLocation.odometer += dOdo;
-	mLocation.x += deltaPos.x();
-	mLocation.y += deltaPos.y();
+	mLocation.x += deltaPosRot.x();
+	mLocation.y += deltaPosRot.y();
 	mLocation.heading += alpha;
+
+	qInfo() << "CarLoc: @" << mLocation.odometer << "|" << mLocation.x << "," << mLocation.y << "/" << mLocation.heading/M_PI*180.0;
 
 	// ---------------------------------------------------
 

@@ -109,7 +109,7 @@ void MainWindow::buildParamsWidget()
 	simGroup->layout()->addWidget(pxPerMeterSlider);
 
 	paramsLayout->addWidget(simGroup);
-	// /// SIMULATION GROUP -------------------
+	// /// END OF SIMULATION GROUP -------------------
 
 	QHBoxLayout *cruiseSpeedLayout = new QHBoxLayout;
 	QLabel *cruiseSpeedLabel = new QLabel(mParamsWidget);
@@ -123,6 +123,46 @@ void MainWindow::buildParamsWidget()
 	connect( cruiseSpeedSpinbox, SIGNAL(valueChanged(double)), this, SLOT(cruiseSpeedValueChanged(double)) );
 	cruiseSpeedLayout->addWidget(cruiseSpeedSpinbox);
 	paramsLayout->addLayout(cruiseSpeedLayout);
+
+
+	QHBoxLayout *steeringControlLayout = new QHBoxLayout;
+
+	QLabel *steeringControlPLabel = new QLabel(mParamsWidget);
+	steeringControlPLabel->setText("P:");
+	steeringControlLayout->addWidget(steeringControlPLabel);
+	QDoubleSpinBox *steeringControlPSpinBox = new QDoubleSpinBox(mParamsWidget);
+	steeringControlPSpinBox->setDecimals(3);
+	steeringControlPSpinBox->setSingleStep(0.5);
+	steeringControlPSpinBox->setValue( mSimView->simulator()->carDriver()->steeringControlParams().P );
+	steeringControlLayout->addWidget(steeringControlPSpinBox);
+	steeringControlLayout->addStretch();
+	connect( steeringControlPSpinBox, SIGNAL(valueChanged(double)), mSimView->simulator()->carDriver(), SLOT(setSteeringControlP(double)) );
+
+	QLabel *steeringControlILabel = new QLabel(mParamsWidget);
+	steeringControlILabel->setText("I:");
+	steeringControlLayout->addWidget(steeringControlILabel);
+	QDoubleSpinBox *steeringControlISpinBox = new QDoubleSpinBox(mParamsWidget);
+	steeringControlISpinBox->setDecimals(3);
+	steeringControlISpinBox->setSingleStep(0.5);
+	steeringControlISpinBox->setValue( mSimView->simulator()->carDriver()->steeringControlParams().I );
+	steeringControlLayout->addWidget(steeringControlISpinBox);
+	steeringControlLayout->addStretch();
+	connect( steeringControlISpinBox, SIGNAL(valueChanged(double)), mSimView->simulator()->carDriver(), SLOT(setSteeringControlI(double)) );
+
+	QLabel *steeringControlDLabel = new QLabel(mParamsWidget);
+	steeringControlDLabel->setText("D:");
+	steeringControlLayout->addWidget(steeringControlDLabel);
+	QDoubleSpinBox *steeringControlDSpinBox = new QDoubleSpinBox(mParamsWidget);
+	steeringControlDSpinBox->setDecimals(3);
+	steeringControlDSpinBox->setSingleStep(0.5);
+	steeringControlDSpinBox->setValue( mSimView->simulator()->carDriver()->steeringControlParams().D );
+	steeringControlLayout->addWidget(steeringControlDSpinBox);
+	steeringControlLayout->addStretch();
+	connect( steeringControlDSpinBox, SIGNAL(valueChanged(double)), mSimView->simulator()->carDriver(), SLOT(setSteeringControlD(double)) );
+
+	paramsLayout->addLayout(steeringControlLayout);
+
+
 
 	paramsLayout->addStretch();
 }

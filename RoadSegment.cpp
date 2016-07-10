@@ -30,11 +30,18 @@ RoadSegment::RoadSegment(roadLocation_t startLocation) :
 		if( RandGen::instance()->generateF() > 0.5 ) { mCurvature *= -1; }
 	}
 
-	qDebug() << QString("Road segment created ( @%1, L=%2, R=%3 )").arg(mStartLoc.parameter).arg( mLength ).arg(radius());
+	qDebug() << QString("Road segment created ( @%1(%2,%3/%4), L=%5, R/C=%6/%7 )")
+				.arg(mStartLoc.parameter)
+				.arg(mStartLoc.x)
+				.arg(mStartLoc.y)
+				.arg(mStartLoc.heading)
+				.arg( mLength )
+				.arg(radius())
+				.arg(mCurvature);
 }
 
-RoadSegment::RoadSegment(long segmentId, roadLocation_t startRoadParam, double curvature, double length, double startWidth, double endWidth) :
-	mSegmentId(segmentId), mStartLoc(startRoadParam), mCurvature(curvature), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
+RoadSegment::RoadSegment(long segmentId, roadLocation_t startRoadLocation, double curvature, double length, double startWidth, double endWidth) :
+	mSegmentId(segmentId), mStartLoc(startRoadLocation), mCurvature(curvature), mLength(length), mStartWidth(startWidth), mEndWidth(endWidth)
 {
 	initSettings();
 
@@ -44,6 +51,14 @@ RoadSegment::RoadSegment(long segmentId, roadLocation_t startRoadParam, double c
 		if( maxTurnRad / fabs(mCurvature) < mLength )
 			{ mLength = maxTurnRad / mCurvature; }
 	}
+	qDebug() << QString("Road segment created ( @%1(%2,%3/%4), L=%5, R/C=%6/%7 )")
+				.arg(mStartLoc.parameter)
+				.arg(mStartLoc.x)
+				.arg(mStartLoc.y)
+				.arg(mStartLoc.heading)
+				.arg( mLength )
+				.arg(radius())
+				.arg(mCurvature);
 }
 
 RoadSegment::RoadSegment(const RoadSegment &other) : mSegmentId(other.mSegmentId)
@@ -77,18 +92,19 @@ RoadSegment::roadLocation_t RoadSegment::endLocation( double paramFromSegmentSta
 		deltaPos.setX( (1-cos(alpha)) / mCurvature );
 		deltaPos.setY( sin(alpha) / mCurvature );
 	}
-	// rotate with current heading
+	// rotate (coord. sys) with current heading (watch the sign! geometric  rotation "to the left" is positive!, but rotating the coord. sys left is like rotating the point right...)
+	QVector2D deltaPosRot(deltaPos);
 	if( mStartLoc.heading != 0.0 )
 	{
-		double rotAngle = -mStartLoc.heading;
-		deltaPos.setX( deltaPos.x()*cos(rotAngle) + deltaPos.y()*sin(rotAngle) );
-		deltaPos.setX( -deltaPos.x()*sin(rotAngle) + deltaPos.y()*cos(rotAngle) );
+		double rotAngle = mStartLoc.heading;
+		deltaPosRot.setX( deltaPos.x()*cos(rotAngle) + deltaPos.y()*sin(rotAngle) );
+		deltaPosRot.setY( -deltaPos.x()*sin(rotAngle) + deltaPos.y()*cos(rotAngle) );
 	}
 
 	endLoc.parameter = mStartLoc.parameter + paramFromSegmentStart;
-	endLoc.x = mStartLoc.x + deltaPos.x();
-	endLoc.y = mStartLoc.y + deltaPos.y();
-	endLoc.heading += alpha;
+	endLoc.x = mStartLoc.x + deltaPosRot.x();
+	endLoc.y = mStartLoc.y + deltaPosRot.y();
+	endLoc.heading = mStartLoc.heading + alpha;
 
 	return endLoc;
 }

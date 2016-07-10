@@ -87,7 +87,7 @@ public:
 	 *  @return The turn curvature. If given angle was < 0, this will be negative as well.*/
 	double turnCurvatureAtWheelAngle( double angleRad ) const;
 
-	/// Set wheelAngle
+	/// Set wheelAngle (left turns are negative!).
 	void steer(double wheelAngleRad);
 
 	/// Get current turn curvature (left turns are negative!).
@@ -103,6 +103,10 @@ public:
 
 	carLocation_t location() const
 		{ return mLocation; }
+
+	/// Get max wheel angle in radians
+	double maxWheelAngle() const
+		{ return mMaxWheelAngle; }
 
 signals:
 
