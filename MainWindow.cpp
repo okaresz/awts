@@ -5,6 +5,9 @@
 #include <QSpinBox>
 #include <QGroupBox>
 #include <QPushButton>
+#include <qevent.h>
+#include <QCheckBox>
+#include <QStatusBar>
 #include "SimulatorView.h"
 
 MainWindow::MainWindow(SimulatorView *view, QWidget *parent) : QMainWindow(parent),
@@ -26,7 +29,15 @@ MainWindow::MainWindow(SimulatorView *view, QWidget *parent) : QMainWindow(paren
 	mDasboardDock->setWidget(mDashboardWidget);
 	addDockWidget( Qt::RightDockWidgetArea, mDasboardDock );
 
+	mStatusBar = new QStatusBar(this);
+	setStatusBar(mStatusBar);
+
 	connect( mSimView->simulator(), SIGNAL(simUpdated()), this, SLOT(onSimUpdated()) );
+	connect( mSimView->simulator(), SIGNAL(simUpdated()), this, SLOT(update()) );
+	connect( mSimView->simulator(), SIGNAL(carUnavoidableTractionLossDetected(double)), this, SLOT(onCarUnavoidableTractionLossDetected(double)) );
+	connect( mSimView->simulator(), SIGNAL(carUnavoidableCrashDetected(double)), this, SLOT(onCarUnavoidableCrashDetected(double)) );
+	connect( mSimView->simulator(), SIGNAL(carTractionLost(double)), this, SLOT(onCarTractionLost(double)) );
+	connect( mSimView->simulator(), SIGNAL(carCrashed(double)), this, SLOT(onCarCrashed(double)) );
 
 	setCentralWidget(mSimView);
 }
@@ -42,7 +53,27 @@ void MainWindow::pixelPerMeterChanged(double newVal)
 {
 	QSlider *pxPerMeterSlider = mParamsWidget->findChild<QSlider*>("pxPerMeterSlider");
 	if( pxPerMeterSlider )
-		{ pxPerMeterSlider->setValue( (int)(newVal*10) ); }
+	{ pxPerMeterSlider->setValue( (int)(newVal*10) ); }
+}
+
+void MainWindow::onCarTractionLost(double atTravel)
+{
+	mStatusBar->showMessage(QString("Car traction lost at travel=%1!").arg(atTravel));
+}
+
+void MainWindow::onCarCrashed(double atTravel)
+{
+	mStatusBar->showMessage(QString("Car crashed at travel=%1!").arg(atTravel));
+}
+
+void MainWindow::onCarUnavoidableTractionLossDetected(double atTravel)
+{
+	mStatusBar->showMessage(QString("Car will lose traction at travel=%1!").arg(atTravel));
+}
+
+void MainWindow::onCarUnavoidableCrashDetected(double atTravel)
+{
+	mStatusBar->showMessage(QString("Car will crash at travel=%1!").arg(atTravel));
 }
 
 void MainWindow::onSimUpdated()
@@ -57,7 +88,12 @@ void MainWindow::onSimUpdated()
 	if( maxAccelRatioLabel )
 		{ maxAccelRatioLabel->setText(QString("maxAccelRatio: %1/%2").arg(mSimView->simulator()->carDriver()->currentNetAccel().length(),3,'f',2).arg(mSimView->simulator()->car()->frictionCoeffStatic()*9.81,3,'f',2) ); }
 
-	emit updateMaxAccelRatioDisplay( mSimView->simulator()->currentMaxAccelerationRatio() * 100 );
+	QSlider *steeringSlider = mParamsWidget->findChild<QSlider*>("steeringSlider");
+	if( steeringSlider )
+	{
+		if( !steeringSlider->isEnabled() || !steeringSlider->hasFocus() )
+			{ steeringSlider->setValue(mSimView->simulator()->car()->wheelAngle()/M_PI*180.0); }
+	}
 }
 
 void MainWindow::pxPerMeterChangeReqInt(int sliderVal)
@@ -75,7 +111,18 @@ void MainWindow::onSimRunButtonToggled(bool clicked)
 	if( clicked )
 		{ mSimView->simulator()->start(); }
 	else
-		{ mSimView->simulator()->stop(); }
+	{ mSimView->simulator()->stop(); }
+}
+
+void MainWindow::onSteeringSliderChanged(int value)
+{
+	if( ((QSlider*)sender())->isEnabled() && ((QSlider*)sender())->hasFocus() )
+		{ mSimView->simulator()->carDriver()->setSteeringControlFeedForward( value/180.0*M_PI ); }
+}
+
+void MainWindow::onTargetCrossPosSPinBoxChanged(double value)
+{
+	mSimView->simulator()->carDriver()->setTargetCrossPos(value);
 }
 
 void MainWindow::buildParamsWidget()
@@ -98,7 +145,7 @@ void MainWindow::buildParamsWidget()
 
 	// Pixel per meter slider + label
 	QLabel *pxPerMeterLabel = new QLabel(mParamsWidget);
-	pxPerMeterLabel->setText(tr("px/m"));
+	pxPerMeterLabel->setText(tr("zoom (px/m)"));
 	simGroup->layout()->addWidget(pxPerMeterLabel);
 	QSlider *pxPerMeterSlider = new QSlider(Qt::Horizontal, mParamsWidget);
 	pxPerMeterSlider->setObjectName("pxPerMeterSlider");
@@ -163,6 +210,52 @@ void MainWindow::buildParamsWidget()
 	paramsLayout->addLayout(steeringControlLayout);
 
 
+	QHBoxLayout *manualSteeringLayout = new QHBoxLayout;
+	QLabel *manSteerLabel = new QLabel(mParamsWidget);
+	manSteerLabel->setText("manualSteering:");
+	manualSteeringLayout->addWidget(manSteerLabel);
+	QCheckBox *manSteerCheckbox = new QCheckBox(mParamsWidget);
+	manSteerCheckbox->setChecked( mSimView->simulator()->carDriver()->manualDrive() );
+	connect( manSteerCheckbox, SIGNAL(clicked(bool)), mSimView->simulator()->carDriver(), SLOT(setManualDrive(bool)) );
+	manualSteeringLayout->addWidget(manSteerCheckbox);
+	paramsLayout->addLayout(manualSteeringLayout);
+	QSlider *steeringSlider = new QSlider(Qt::Horizontal,mParamsWidget);
+	steeringSlider->setObjectName("steeringSlider");
+	steeringSlider->setMinimum(-mSimView->simulator()->car()->maxWheelAngle()/M_PI*180.0);
+	steeringSlider->setMaximum(mSimView->simulator()->car()->maxWheelAngle()/M_PI*180.0);
+	steeringSlider->setTickInterval(1);
+	steeringSlider->setValue( mSimView->simulator()->car()->wheelAngle()/M_PI*180.0 );
+	steeringSlider->setEnabled( mSimView->simulator()->carDriver()->manualDrive() );
+	connect( steeringSlider, SIGNAL(valueChanged(int)), this, SLOT(onSteeringSliderChanged(int)) );
+	connect( manSteerCheckbox, SIGNAL(clicked(bool)), steeringSlider, SLOT(setEnabled(bool)) );
+	paramsLayout->addWidget(steeringSlider);
+
+
+	QHBoxLayout *frictionCoeffLayout = new QHBoxLayout;
+	QLabel *frictionCoeffLabel = new QLabel(mParamsWidget);
+	frictionCoeffLabel->setText("Friction coeff.:");
+	frictionCoeffLayout->addWidget(frictionCoeffLabel);
+	QDoubleSpinBox *frictionCoeffSpinBox = new QDoubleSpinBox(mParamsWidget);
+	frictionCoeffSpinBox->setDecimals(2);
+	frictionCoeffSpinBox->setSingleStep(0.1);
+	frictionCoeffSpinBox->setValue( mSimView->simulator()->car()->frictionCoeffStatic() );
+	connect( frictionCoeffSpinBox, SIGNAL(valueChanged(double)), mSimView->simulator()->car(), SLOT(setFrictionCoeffStatic(double)) );
+	frictionCoeffLayout->addWidget(frictionCoeffSpinBox);
+	paramsLayout->addLayout(frictionCoeffLayout);
+
+	QHBoxLayout *targetCrossPosLayout = new QHBoxLayout;
+	QLabel *targetCrossPosLabel = new QLabel(mParamsWidget);
+	targetCrossPosLabel->setText("targetCrossPos:");
+	targetCrossPosLayout->addWidget(targetCrossPosLabel);
+	QDoubleSpinBox *targetCrossPosSpinBox = new QDoubleSpinBox(mParamsWidget);
+	targetCrossPosSpinBox->setMinimum(-100.0);
+	targetCrossPosSpinBox->setMaximum(100.0);
+	targetCrossPosSpinBox->setDecimals(2);
+	targetCrossPosSpinBox->setSingleStep(0.1);
+	targetCrossPosSpinBox->setValue( mSimView->simulator()->carDriver()->targetCrossPos() );
+	connect( targetCrossPosSpinBox, SIGNAL(valueChanged(double)), this, SLOT(onTargetCrossPosSPinBoxChanged(double)) );
+	targetCrossPosLayout->addWidget(targetCrossPosSpinBox);
+	paramsLayout->addLayout(targetCrossPosLayout);
 
 	paramsLayout->addStretch();
 }
@@ -187,14 +280,6 @@ void MainWindow::buildDashboardWidget()
 	QLabel *maxAccelRatioLabel = new QLabel(mDashboardWidget);
 	maxAccelRatioLabel->setObjectName("maxAccelRatioLabel");
 	dashboardLayout->addWidget(maxAccelRatioLabel);
-	QSlider *maxAccelRatioSlider = new QSlider(Qt::Horizontal, mDashboardWidget);
-	maxAccelRatioSlider->setDisabled(true);
-	maxAccelRatioSlider->setObjectName("maxAccelRatioSlider");
-	maxAccelRatioSlider->setMinimum(-100);
-	maxAccelRatioSlider->setMaximum(100);
-	maxAccelRatioSlider->setValue(0);
-	connect( this, SIGNAL(updateMaxAccelRatioDisplay(int)), maxAccelRatioSlider, SLOT(setValue(int)) );
-	dashboardLayout->addWidget(maxAccelRatioSlider);
 
 	dashboardLayout->addStretch();
 }

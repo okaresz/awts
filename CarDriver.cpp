@@ -1,17 +1,14 @@
 #include "CarDriver.h"
 #include <QDebug>
 #include <QLineF>
+#include <QRectF>
 #include <SettingsManager.h>
-
-/* NOTES
- * - left bend radius is negative.
- * - a turn span angle is always positive.*/
 
 const double CarDriver::obstacleAvoidanceDistance = 0.5;
 
 CarDriver::CarDriver(Car *car, RoadGenerator *roadGen, QObject *parent) : QObject(parent),
 	mCar(car), mRoadGen(roadGen), mCruiseSpeed(14), mTargetSpeed(mCruiseSpeed), mSteeringControl({0.0,0.0,0.0,0.0,0.0,0.0}), mAccelerationMode(ProportionalAcceleration),
-	mThreats({0,0}), mCrashed(false), mTractionLost(false), mBendMaxSpeedSafetyFactor(0.8)
+	mThreats({0,0}), mCrashed(false), mTractionLost(false), mManualDrive(false), mBendMaxSpeedSafetyFactor(0.8)
 {
 	if( !SettingsManager::instance()->contains("carDriver/steerControlP") )
 		{ SettingsManager::instance()->setValue("carDriver/steerControlP", 0.0); }
@@ -27,23 +24,42 @@ CarDriver::CarDriver(Car *car, RoadGenerator *roadGen, QObject *parent) : QObjec
 		{ SettingsManager::instance()->setValue("carDriver/steerControlD", 0.0); }
 	else
 		{ mSteeringControl.D = SettingsManager::instance()->value("carDriver/steerControlD").toDouble(); }
+
+	if( !SettingsManager::instance()->contains("carDriver/manualDriveEnabled") )
+		{ SettingsManager::instance()->setValue("carDriver/manualDriveEnabled", mManualDrive); }
+	else
+		{ mManualDrive = SettingsManager::instance()->value("carDriver/manualDriveEnabled").toBool(); }
 }
 
 void CarDriver::simUpdate(const quint64 simTime, const double travel, const double carCrossPosOnRoad, const double carHeadingOnRoad)
 {
 	static quint64 prevSimTime = 0;
-	int simdT = simTime - prevSimTime;
+	int simdTms = simTime - prevSimTime;
+	double simdTSec	= (double)simdTms/1000.0;
 
 	// some facts
 	double currentSpeed = mCar->speed();
 	QVector2D currentAcceleration = currentNetAccel();
-	double maxAccelAllowedByFriction = mCar->frictionCoeffStatic() * 9.81;
+	double maxAccelAllowedByFriction = mCar->maxAcceleration();
 
+	// CHECK TRACTION LOSS
 	if( currentAcceleration.length() > maxAccelAllowedByFriction && !mTractionLost )
 	{
 		mTractionLost = true;
 		emit tractionLost(travel);
-		qWarning() << "TRACTION LOST at travel=" << travel;
+		qWarning() << "TRACTION LOST at travel=" << travel << "(" <<currentAcceleration.length() << ">" <<maxAccelAllowedByFriction<<")";
+	}
+
+	// CHECK IF CAR HAS LEFT THE ROAD
+	const RoadSegment *segAtCar = mRoadGen->segmentAt(travel);
+	if( segAtCar != nullptr )
+	{
+		if( !mCrashed && (qAbs(carCrossPosOnRoad)+mCar->size().width()/2 > segAtCar->widthAt(travel-segAtCar->startLocation().parameter)/2) )
+		{
+			mCrashed = true;
+			emit crashed(travel);
+			qWarning() << "CRASHED at travel=" << travel << "(car left the road)";
+		}
 	}
 
 	/* === FEATURE POINT GENERATION ============================================================*/
@@ -60,6 +76,8 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 			const RoadSegment *seg = &visibleRoad.at(i);
 			roadFeaturePoint *rfp = new roadFeaturePoint;
 			rfp->roadParam = seg->startLocation().parameter;
+			rfp->segment = nullptr;
+			rfp->minRoadWidth = seg->minWidth();
 			if( seg->isBend() )
 			{
 				rfp->type = BendStartFeaturePoint;
@@ -69,7 +87,7 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 			else
 			{
 				rfp->type = StraightStartFeaturePoint;
-				rfp->maxSpeed = mCruiseSpeed;
+				rfp->maxSpeed = 10000000.0;	// dirty hack for infinite
 			}
 			mRoadFeaturePoints.append(rfp);
 		}
@@ -77,23 +95,37 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 	// scan obstacles, generate featurePoints
 	for( int i=0; i<visibleObstacles.size(); ++i )
 	{
-		// find the segment at featurePointGenHorizon
-		if( visibleObstacles.at(i).roadParam() >= featurePointGenHorizon )
+		const RoadObstacle *obst = &visibleObstacles.at(i);
+		const RoadSegment *segAtObst = mRoadGen->segmentAt(obst->roadParam());
+		if( !segAtObst )
 		{
-			const RoadObstacle *obst = &visibleObstacles.at(i);
-			const RoadSegment *segAtObst = mRoadGen->segmentAt(obst->roadParam());
-			if( !segAtObst )
-			{
-				qWarning() << "No segment at obstacle@"<<obst->roadParam();
-				continue;
-			}
+			qWarning() << "No segment at obstacle@"<<obst->roadParam();
+			continue;
+		}
+		double obstCrossPos = obst->normalPos()*segAtObst->widthAt( obst->roadParam()-segAtObst->startLocation().parameter )/2;
+
+		if( obst->roadParam() >= featurePointGenHorizon )
+		{
 			roadFeaturePoint *rfp = new roadFeaturePoint;
+			rfp->segment = segAtObst;
 			rfp->type = ObstacleFeaturePoint;
 			rfp->roadParam = obst->roadParam();
-			rfp->crossPos = obst->normalPos()*segAtObst->widthAt( obst->roadParam()-segAtObst->startLocation().parameter )/2;
+			rfp->crossPos = obstCrossPos;
 			rfp->size = obst->size();
-			rfp->maxSpeed = mCruiseSpeed;	// TODO is this OK?
-			//insertRoadFeaturePoint( rfp );
+			rfp->maxSpeed = 10000000.0;	// dirty hack for infinite
+			insertRoadFeaturePoint( rfp );
+		}
+
+		// check obstacle collision (y axis points up)
+		double obstRadius = obst->size()/2;
+		QRectF obstacleRect( obstCrossPos-obstRadius, obst->roadParam()-obstRadius, obstRadius*2, obstRadius*2 );
+		QSizeF carSize(mCar->size());
+		QRectF carRect( carCrossPosOnRoad-carSize.width()/2, travel-carSize.height()/2, carSize.width(), carSize.height() );
+		if( carRect.intersects(obstacleRect) )
+		{
+			mCrashed = true;
+			emit crashed(travel);
+			qWarning() << "CRASHED at travel=" << travel << "(car crashed into obstacle)";
 		}
 	}
 	featurePointGenHorizon = visibleRoad.last().endRoadParam();
@@ -132,10 +164,12 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 		{ qWarning() << "Max possible tangential decel is practically zero!"; }
 	Car::accelDecelPair_t maxSafeTangentialAccel( maxTangentialAccel.acceleration * 0.95,
 												maxTangentialAccel.deceleration * 0.95 ); // don't go on the limit
-	qInfo() << "accVect=" << currentAcceleration;
+	qInfo() << "accVect=" << currentAcceleration << "= |" << currentAcceleration.length() << "|";
 	qInfo() << "speed=" << currentSpeed*3.6;
 
-	// if a feature point is passed (left behind, but not yet deleted at the end of this simUpdate), set it's target speed and proportional acc
+	// FEATURE POINT PASSED -------------------------
+	// if a feature point is passed (left behind, but not yet deleted at the end of this simUpdate),
+	// set it's target speed and proportional acc, set steering feedForward and targetCrossPos if needed 'cause of width change
 	roadFeaturePoint *lastPassedFP = nullptr;
 	for( int i=0; i<mRoadFeaturePoints.size(); ++i )
 	{
@@ -144,19 +178,39 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 	}
 	if( lastPassedFP )
 	{
-		mAccelerationMode = ProportionalAcceleration;
-		mTargetSpeed = qBound(0.0,lastPassedFP->maxSpeed,mCruiseSpeed);
+		if( lastPassedFP->type != ObstacleFeaturePoint )
+		{
+			if( lastPassedFP->type == StraightStartFeaturePoint )
+				{ mAccelerationMode = ProportionalAcceleration; }
+			mTargetSpeed = qBound(0.0,lastPassedFP->maxSpeed,mCruiseSpeed);
+		}
 
-		// set steering feedForward for coming segment, according to the radius on the current crossPos
-		if( lastPassedFP->curvature == 0 )
-			{ mSteeringControl.feedForward = 0.0; }
-		else
+		if( lastPassedFP->type == StraightStartFeaturePoint )
+		{
+			// set steering feedForward for coming segment, according to the radius on the current crossPos
+			mSteeringControl.feedForward = 0.0;
+			qInfo() << "Passed FeaturePoint@"<<lastPassedFP->roadParam<<", set targetSpeed="<<mTargetSpeed<<", steerFeedfwd=0.0";
+		}
+		if( lastPassedFP->type == StraightStartFeaturePoint || lastPassedFP->type == ObstacleFeaturePoint )
+		{
+			// if car would leave road, change targetCrossPos
+			const RoadSegment *currentSegment = mRoadGen->segmentAt(travel);
+			double maxCrossPos = (currentSegment->minWidth()/2-mCar->size().width()/2);
+			if( qAbs(mSteeringControl.targetCrossPos) > maxCrossPos )
+			{
+				if( mSteeringControl.targetCrossPos < 0.0 )
+					{ mSteeringControl.targetCrossPos = -maxCrossPos; }
+				else
+					{ mSteeringControl.targetCrossPos = maxCrossPos; }
+				qInfo() << "Passed FeaturePoint@"<<lastPassedFP->roadParam<<", set targetSpeed="<<mTargetSpeed<<", update targetCrossPos to stay on road:"<<mSteeringControl.targetCrossPos;
+			}
+		}
+		if( lastPassedFP->type == BendStartFeaturePoint )
 		{
 			double bendRadius = 1/lastPassedFP->curvature;
 			mSteeringControl.feedForward = mCar->wheelAngleAtTurnCurvature( 1/(bendRadius-carCrossPosOnRoad) );
+			qInfo() << "Passed FeaturePoint@"<<lastPassedFP->roadParam<<", set targetSpeed="<<mTargetSpeed<<", steerFeedfwd="<<mSteeringControl.feedForward;
 		}
-
-		qInfo() << "Passed FeaturePoint@"<<lastPassedFP->roadParam<<", set targetSpeed="<<mTargetSpeed<<", targetSteer4curv:"<<lastPassedFP->curvature;
 	}
 
 	// Search for and set nearest brakePoint -------------------------------------------------------------------------
@@ -175,6 +229,7 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 		{
 			double decelTimeForNextBend = (currentSpeed-fpMaxSpeed) / maxSafeTangentialAccel.deceleration;
 			double decelDistance = currentSpeed*decelTimeForNextBend - maxSafeTangentialAccel.deceleration * pow(decelTimeForNextBend,2) / 2; // minus, because deceleration
+			decelDistance += simdTSec*currentSpeed;	// consider simulation resolution... (should add dTravel, not dOdo, but whatever)
 			double brakeAtRoadParam = mRoadFeaturePoints.at(i)->roadParam - decelDistance;
 			if( nearestBrakePointRoadParam < 0 || brakeAtRoadParam < nearestBrakePointRoadParam )
 			{
@@ -212,71 +267,94 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 
 		mAccelerationMode = MaxAcceleration;
 		mTargetSpeed = featurePointOfNearestBrake->maxSpeed;
+		qInfo() << "Target speed set to " << mTargetSpeed;
 	}
 
 	// calculate acceleration -------------------------------------------------------------------------
 	double actualAcceleration = 0;
-	double speedError = mTargetSpeed - currentSpeed;
-
 	static double previousSpeed = 0;
 
-	if( mAccelerationMode == MaxAcceleration )
+	if( mManualDrive )
 	{
-		if( (previousSpeed > mTargetSpeed && currentSpeed < mTargetSpeed) || (previousSpeed < mTargetSpeed && currentSpeed > mTargetSpeed) )
-		{
-			mAccelerationMode = ProportionalAcceleration;
-			actualAcceleration = 0.0;
-		}
+		if( mKeyStatus.value(Qt::Key_Up,false) )
+			{ actualAcceleration = maxSafeTangentialAccel.acceleration; }
+		else if( mKeyStatus.value(Qt::Key_Down,false) )
+			{ actualAcceleration = -maxSafeTangentialAccel.deceleration; }
 		else
-		{
-			if( speedError < 0.0 )
-				{ actualAcceleration = -maxSafeTangentialAccel.deceleration; }
-			else if( speedError > 0.0 )
-				{ actualAcceleration = maxSafeTangentialAccel.acceleration; }
-			else	// double equality? ...eh... not so critical here
-				{ actualAcceleration = 0.0; }
-		}
-	}
-	else if( mAccelerationMode == ProportionalAcceleration )
-	{
-		actualAcceleration = qBound(-maxSafeTangentialAccel.deceleration, speedError * 0.8, maxSafeTangentialAccel.acceleration);	// P controller
-	}
-	previousSpeed = currentSpeed;
-
-	/* STEERING CONTROL ====================================================================================
-	 * -*/
-	double simdTSec	= (double)simdT/1000.0;
-	static double previousCrossPosError = 0;
-	double crossPosError = mSteeringControl.targetCrossPos - carCrossPosOnRoad;
-	double integral = mSteeringControl.I * crossPosError * simdTSec;
-	double steerAngleRad = mSteeringControl.feedForward +
-			crossPosError * mSteeringControl.P +
-			mSteeringControl.integratorSum+integral +
-			mSteeringControl.D*(crossPosError-previousCrossPosError)/simdTSec;
-
-	double minTurnCurvatureWithCurrentSpeed = (mCar->frictionCoeffStatic()*9.81)/pow(currentSpeed,2)*0.95;	// *0.95 for safety
-	double currentMaxSteerAngle = mCar->wheelAngleAtTurnCurvature(minTurnCurvatureWithCurrentSpeed);
-	if( currentMaxSteerAngle > mCar->maxWheelAngle() )
-		{ currentMaxSteerAngle = mCar->maxWheelAngle(); }
-	if( qAbs(steerAngleRad) <= currentMaxSteerAngle )
-	{
-		mSteeringControl.integratorSum += integral;		// integrator anti windup
+			{ actualAcceleration = 0.0; }
 	}
 	else
 	{
-		if( steerAngleRad < -currentMaxSteerAngle )
-			{ steerAngleRad = -currentMaxSteerAngle; }
-		else if( steerAngleRad > currentMaxSteerAngle )
-			{ steerAngleRad = -currentMaxSteerAngle; }
+		double speedError = mTargetSpeed - currentSpeed;
+		if( mAccelerationMode == MaxAcceleration )
+		{
+			if( (previousSpeed > mTargetSpeed && currentSpeed < mTargetSpeed) || (previousSpeed < mTargetSpeed && currentSpeed > mTargetSpeed) )
+			{
+				mAccelerationMode = ProportionalAcceleration;
+				actualAcceleration = 0.0;
+			}
+			else
+			{
+				if( speedError < 0.0 )
+					{ actualAcceleration = -maxSafeTangentialAccel.deceleration; }
+				else if( speedError > 0.0 )
+					{ actualAcceleration = maxSafeTangentialAccel.acceleration; }
+				else	// double equality? ...eh... not so critical here
+					{ actualAcceleration = 0.0; }
+			}
+		}
+		else if( mAccelerationMode == ProportionalAcceleration )
+		{
+			actualAcceleration = qBound(-maxSafeTangentialAccel.deceleration, speedError * 0.8, maxSafeTangentialAccel.acceleration);	// P controller
+		}
+		previousSpeed = currentSpeed;
 	}
-	previousCrossPosError = crossPosError;
 
+	/* STEERING CONTROL ====================================================================================
+	 * -*/
+	static double previousCrossPosError = 0;
+	double steerAngleRad = 0.0;
+	if( mManualDrive )
+	{
+		double arrowWheelAngleDeg = 20.0;
+		if( mKeyStatus.value(Qt::Key_Left,false) )
+			{ steerAngleRad = -arrowWheelAngleDeg/180.0*M_PI; }
+		else if( mKeyStatus.value(Qt::Key_Right,false) )
+			{ steerAngleRad = arrowWheelAngleDeg/180.0*M_PI; }
+		else
+			{ steerAngleRad = mSteeringControl.feedForward; }
+	}
+	else
+	{
+		double crossPosError = mSteeringControl.targetCrossPos - carCrossPosOnRoad;
+		double integral = mSteeringControl.I * crossPosError * simdTSec;
+		steerAngleRad = mSteeringControl.feedForward +
+				crossPosError * mSteeringControl.P +
+				mSteeringControl.integratorSum+integral +
+				mSteeringControl.D*(crossPosError-previousCrossPosError)/simdTSec;
+
+		double currentMaxSteerAngle = mCar->maxWheelAngleAtCurrentAcceleration(actualAcceleration)*0.9;
+		if( qAbs(steerAngleRad) <= currentMaxSteerAngle )
+		{
+			mSteeringControl.integratorSum += integral;		// integrator anti windup
+		}
+		else
+		{
+			if( steerAngleRad < -currentMaxSteerAngle )
+				{ steerAngleRad = -currentMaxSteerAngle; }
+			else if( steerAngleRad > currentMaxSteerAngle )
+				{ steerAngleRad = currentMaxSteerAngle; }
+		}
+		previousCrossPosError = crossPosError;
+	}
 
 	// set car params =======================================
 	mCar->steer( steerAngleRad );
 	mCar->accelerate( actualAcceleration );
 	qInfo() << "Car wheelAngle (deg): " << mCar->wheelAngle()/M_PI*180.0;
 	qInfo() << "Set car acc: " << actualAcceleration;
+	qInfo() << "Target speed = " << mTargetSpeed*3.6;
+	qInfo() << "TargetCrossPos = " << mSteeringControl.targetCrossPos;
 
 	// end stuff -----------------------------
 
@@ -302,6 +380,16 @@ void CarDriver::simUpdate(const quint64 simTime, const double travel, const doub
 	qInfo() << "------------------------------------------------------";
 }
 
+void CarDriver::setTargetCrossPos(double crossPos)
+{
+	mSteeringControl.targetCrossPos = crossPos;
+}
+
+void CarDriver::setSteeringControlFeedForward(const double value)
+{
+	mSteeringControl.feedForward = value;
+}
+
 double CarDriver::calculateObstacleAvoidancePoint( const double carCrossPos, const double obstRoadParam, const double obstCrossPos, const double obstSize )
 {
 	const RoadSegment *roadSegmentAtObstacle = mRoadGen->segmentAt(obstRoadParam);
@@ -312,7 +400,7 @@ double CarDriver::calculateObstacleAvoidancePoint( const double carCrossPos, con
 	}
 	double roadWidth = roadSegmentAtObstacle->widthAt( obstRoadParam-roadSegmentAtObstacle->startLocation().parameter );
 
-	double obstacleCrossPosRelToCar = carCrossPos - obstCrossPos;
+	double obstacleCrossPosRelToCar = obstCrossPos - carCrossPos;
 	double minDistanceToObst = (obstSize/2+mCar->size().width()/2+obstacleAvoidanceDistance);
 
 	double targetPoint = carCrossPos;	// init
@@ -367,24 +455,7 @@ void CarDriver::insertRoadFeaturePoint(CarDriver::roadFeaturePoint *rfp)
 
 double CarDriver::currentCentripetalAccel() const
 {
-	// old
-//	const RoadSegment *currentRoadSegment = mRoadGen->segmentAtOdo(mCar->odometer());
-//	if( !currentRoadSegment )
-//	{
-//		qWarning("No current roadSegment in CarDriver::currentCentripetalAccel()!");
-//		return 0;
-//	}
-//	double currentRoadRadius = currentRoadSegment->radius();
-//	double currentCentripetalAccel = 0;
-//	if( currentRoadRadius != 0 )
-//		{ currentCentripetalAccel = pow(mCar->speed(),2) / currentRoadRadius; }
-//	return currentCentripetalAccel;
-
-	double currentTurnCurvature = mCar->turnCurvature();
-	double currentCentripetalAccel = 0;
-	if( currentTurnCurvature != 0 )
-		{ currentCentripetalAccel = pow(mCar->speed(),2) * currentTurnCurvature; }
-	return currentCentripetalAccel;
+	return pow(mCar->speed(),2) * mCar->turnCurvature();
 }
 
 QVector2D CarDriver::currentNetAccel() const
@@ -405,8 +476,34 @@ double CarDriver::currentMaxPossibleSpeedOnBend() const
 	double currentRoadRadius = currentRoadSegment->radiusAbs();
 	double maxSpeed = 1000000;
 	if( currentRoadRadius > 0 )
-		{ maxSpeed = sqrt( mCar->frictionCoeffStatic() * 9.81 * currentRoadSegment->radiusAbs() ); }
+		{ maxSpeed = sqrt( mCar->maxAcceleration() * currentRoadSegment->radiusAbs() ); }
 	return maxSpeed;
+}
+
+bool CarDriver::keyboardEvent(Qt::Key key, bool pressed)
+{
+	bool handled = false;
+	switch(key)
+	{
+	case Qt::Key_Left:
+		mKeyStatus[Qt::Key_Left] = pressed;
+		handled = true;
+		break;
+	case Qt::Key_Right:
+		mKeyStatus[Qt::Key_Right] = pressed;
+		handled = true;
+		break;
+	case Qt::Key_Up:
+		mKeyStatus[Qt::Key_Up] = pressed;
+		handled = true;
+		break;
+	case Qt::Key_Down:
+		mKeyStatus[Qt::Key_Down] = pressed;
+		handled = true;
+		break;
+	default:;
+	}
+	return handled;
 }
 
 double CarDriver::cruiseSpeedMps() const

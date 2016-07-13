@@ -33,4 +33,8 @@ HEADERS += \
 DISTFILES += \
     images/car.png \
     README \
-    TODO.md
+    TODO.md \
+    README.md
+
+RESOURCES += \
+    awts.qrc

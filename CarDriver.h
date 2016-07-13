@@ -4,6 +4,7 @@
 #include <QObject>
 #include "Car.h"
 #include "RoadGenerator.h"
+#include <QHash>
 #include <QList>
 #include <QVector2D>
 
@@ -39,10 +40,19 @@ public:
 	double currentCentripetalAccel() const;
 	/// Get net (sum) acceleration (left turns are pointing towards negative).
 	QVector2D currentNetAccel() const;
+
 	double currentMaxPossibleSpeedOnBend() const;
 
 	steeringControl_t steeringControlParams() const
 		{ return mSteeringControl; }
+
+	bool keyboardEvent( Qt::Key key, bool pressed );
+
+	bool manualDrive() const
+		{ return mManualDrive; }
+
+	double targetCrossPos() const
+		{ return mSteeringControl.targetCrossPos; }
 
 signals:
 	void tractionLost(double atTravel);
@@ -59,6 +69,13 @@ public slots:
 		{ mSteeringControl.I = I; }
 	void setSteeringControlD(const double D)
 		{ mSteeringControl.D = D; }
+
+	void setManualDrive(bool value)
+		{ mManualDrive = value; }
+
+	void setTargetCrossPos(double crossPos);
+
+	void setSteeringControlFeedForward(const double value);
 
 private:
 
@@ -79,6 +96,8 @@ private:
 		int crash;
 	} mThreats;
 	bool mCrashed, mTractionLost;
+	bool mManualDrive;
+	QHash<Qt::Key,bool> mKeyStatus;
 
 	// Safety factors
 	/** With full speed in bend, there can be no deceleration
@@ -103,8 +122,10 @@ private:
 		double roadParam;	///< position of feature point along road.
 		double crossPos; ///< Position across the road (in meters, from the road centerline) (used with obstacles)
 		double curvature;	///< radius of the bend that the feature point belongs to.
+		double minRoadWidth; ///< minimum width on the segment.
 		double maxSpeed;	///< max speed from this feature point.
 		double size;		///< only for obstacle
+		const RoadSegment *segment;	///< relevant roadSegment belonging to the feature point
 		roadFeaturePoint()
 		{
 			type = UnknownFeaturePoint;
@@ -112,7 +133,9 @@ private:
 			roadParam = -1.0;
 			crossPos = 0.0;
 			curvature = 0.0;
+			minRoadWidth = 0.0;
 			maxSpeed = 0.0;
+			segment = nullptr;
 		}
 	};
 	QList<roadFeaturePoint*> mRoadFeaturePoints;

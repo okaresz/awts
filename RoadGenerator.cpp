@@ -6,8 +6,8 @@
 RoadGenerator::RoadGenerator(double roadVisibility, QObject *parent) : QObject(parent),
 	mRoadGenerationHorizon(roadVisibility), mRoadVisibility(roadVisibility)
 {
-	if( !SettingsManager::instance()->contains("road/obstacleprobabilityPerMeter") )
-		{ SettingsManager::instance()->setValue("road/obstacleprobabilityPerMeter", 0.005); }
+	if( !SettingsManager::instance()->contains("road/obstacleProbabilityPerMeter") )
+		{ SettingsManager::instance()->setValue("road/obstacleProbabilityPerMeter", 0.008); }
 }
 
 void RoadGenerator::simUpdate(const quint64 simTime, const double travel)
@@ -15,28 +15,32 @@ void RoadGenerator::simUpdate(const quint64 simTime, const double travel)
 	Q_UNUSED(simTime);
 
 	//DEBUG
-	if( simTime == 0 )
+/*	if( simTime == 0 )
 	{
-		mSegmentQueue.enqueue( new RoadSegment(1,{0.0,0.0,0.0,0.0}, 0.0, 20.0, 10.0, 10.0) );
+		mSegmentQueue.enqueue( new RoadSegment(1,{0.0,0.0,0.0,0.0}, 0.0, 200.0, 10.0, 10.0) );
 		mSegmentQueue.enqueue( new RoadSegment(2,mSegmentQueue.last()->endLocation(), 0.015, 100.0, 10.0, 10.0) );
 		mSegmentQueue.enqueue( new RoadSegment(3,mSegmentQueue.last()->endLocation(), 0.0, 120.0, 10.0, 10.0) );
 		//mObstacleQueue.enqueue( new RoadObstacle( 7, 0.1, 0.6 ) );
 		//mObstacleQueue.enqueue( new RoadObstacle( 28, 0.5, 1 ) );
 		//mObstacleQueue.enqueue( new RoadObstacle( 45, -0.8, 1.6 ) );
 		return;
-	}
+	}*/
 	//DEBUG END
 
 	// if necessary, add new segment
 	while( lengthAhead(travel) < SettingsManager::instance()->value( "simulation/visibleRoadAheadM").toDouble() )
 	{
 		RoadSegment::roadLocation_t lastSegmentEndLocation = {0.0,0.0,0.0,0.0};
+		double lastSegmentEndWidth = 0.0;	// segment object will default to value in Settings
 		if( !mSegmentQueue.isEmpty() )
-			{ lastSegmentEndLocation = mSegmentQueue.last()->endLocation(); }
-		mSegmentQueue.enqueue( new RoadSegment(lastSegmentEndLocation) );
+		{
+			lastSegmentEndLocation = mSegmentQueue.last()->endLocation();
+			lastSegmentEndWidth = mSegmentQueue.last()->endWidth();
+		}
+		mSegmentQueue.enqueue( new RoadSegment(lastSegmentEndLocation,lastSegmentEndWidth) );
 
 		// generate obstacles for the new segment
-		double obstacleprobabilityOnSegment = SettingsManager::instance()->value("road/obstacleprobabilityPerMeter").toDouble()*mSegmentQueue.last()->length();
+		double obstacleprobabilityOnSegment = SettingsManager::instance()->value("road/obstacleProbabilityPerMeter").toDouble()*mSegmentQueue.last()->length();
 		int obstacleCount = (int)obstacleprobabilityOnSegment;
 		double remainderProbability = obstacleprobabilityOnSegment - (double)obstacleCount;
 		if( RandGen::instance()->generateF() <= remainderProbability )

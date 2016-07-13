@@ -5,6 +5,7 @@
 #include <QDockWidget>
 
 class SimulatorView;
+class QStatusBar;
 
 class MainWindow : public QMainWindow
 {
@@ -13,17 +14,23 @@ public:
 	explicit MainWindow( SimulatorView *view, QWidget *parent = 0);
 
 signals:
-	void updateMaxAccelRatioDisplay(int ratio);
 
 public slots:
 	void onSimUpdated();
 	void updateSpeedDisplay(double speedKmh);
 	void pixelPerMeterChanged(double newVal);
 
+	void onCarTractionLost(double atTravel);
+	void onCarCrashed(double atTravel);
+	void onCarUnavoidableTractionLossDetected(double atTravel);
+	void onCarUnavoidableCrashDetected(double atTravel);
+
 private slots:
 	void pxPerMeterChangeReqInt( int sliderVal );
 	void cruiseSpeedValueChanged( double val );
 	void onSimRunButtonToggled(bool clicked);
+	void onSteeringSliderChanged(int value);
+	void onTargetCrossPosSPinBoxChanged(double value);
 
 private:
 	void buildParamsWidget();
@@ -31,6 +38,7 @@ private:
 
 	QDockWidget *mParamsDock, *mDasboardDock;
 	QWidget *mParamsWidget, *mDashboardWidget;
+	QStatusBar *mStatusBar;
 	SimulatorView *mSimView;
 };
 

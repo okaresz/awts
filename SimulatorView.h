@@ -21,13 +21,25 @@ signals:
 
 public slots:
 	void setPixelPerMeter( double pxPerM );
+	void onCarTractionLost(double atTravel);
+	void onCarCrashed(double atTravel);
+	void onCarUnavoidableTractionLossDetected(double atTravel);
+	void onCarUnavoidableCrashDetected(double atTravel);
 
 protected:
     void paintEvent(QPaintEvent *event);
+	void keyPressEvent(QKeyEvent *event);
+	void keyReleaseEvent(QKeyEvent *event);
+	void resizeEvent(QResizeEvent *event);
 
 private:
 	void paintCar(QPainter *painter, const QPointF carCenterPoint, const double carHeading, const QSize carSize );
-	void paintRoad(QPainter *painter, QPointF startPoint, double travel, double visibility );
+	/** Paint road.
+	 *  @param[out] endPoint: set to the endPoint (on the centerline) of the last drawn segment.*/
+	void paintRoad(QPainter *painter, const QPointF startPoint, double travel, double visibility , QPointF &endPoint);
+	void paintTargetCrossPos(QPainter *painter, const QPointF startPoint);
+	void paintSpeedometer(QPainter *painter, const QPointF centerPoint, const QSizeF size);
+	void paintGmeter(QPainter *painter, const QPointF centerPoint, const QSizeF size);
 
 	/** Paint road segment from the current painter position (0,0), straight road points upwards.
 	 *	@param paintFromNormalPos Paint the segment from this normalized position along segment length.
@@ -41,6 +53,9 @@ private:
 
 	Simulator *mSimulator;
 	double mPixelPerMeter;
+	bool mPxPerMeterSetForViewSize;
+	QColor mBackgroundColor;
+	bool mEaster;
 };
 
 #endif // SIMVIEWWIDGET_H

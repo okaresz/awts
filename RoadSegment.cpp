@@ -6,22 +6,31 @@
 
 long int RoadSegment::segmentCounter = 0;
 
-RoadSegment::RoadSegment(roadLocation_t startLocation) :
+RoadSegment::RoadSegment(roadLocation_t startLocation, const double startWidth) :
 	mSegmentId(++segmentCounter), mStartLoc(startLocation)
 {
 	initSettings();
 
 	mLength = RandGen::instance()->generateF( SettingsManager::instance()->value("road/segmentMinLengthM").toDouble(), SettingsManager::instance()->value("road/segmentMaxLengthM").toDouble() );
-	mStartWidth = mEndWidth = SettingsManager::instance()->value("road/defaultWidthM").toDouble();
+
+	if( startWidth == 0.0)
+		{ mStartWidth = SettingsManager::instance()->value("road/defaultWidthM").toDouble(); }
+	else
+		{ mStartWidth = startWidth; }
 
 	// decide if bend or straight
 	double straightProb = RandGen::instance()->generateF();
 	if( straightProb < SettingsManager::instance()->value("road/straightVsBendSegmentProbability").toDouble() )
 	{
 		mCurvature = 0;
+		// straight segments can have variable endWidth
+		double widthVariationRatio = SettingsManager::instance()->value("road/widthVariationRatio").toDouble();;
+		double endWidthRatio = RandGen::instance()->generateF(-widthVariationRatio, widthVariationRatio);
+		mEndWidth = (1+endWidthRatio)*SettingsManager::instance()->value("road/defaultWidthM").toDouble();
 	}
 	else // Generate random radius for bend
 	{
+		mEndWidth = mStartWidth;
 		mCurvature = 1.0/RandGen::instance()->generateF( SettingsManager::instance()->value("road/bendMinRadiusM").toDouble(), SettingsManager::instance()->value("road/bendMaxRadiusM").toDouble() );
 		// check for max turn and adjust length if necessary
 		double maxTurnRad = SettingsManager::instance()->value("road/bendMaxTurnDegree").toDouble() / 180.0 * M_PI;
@@ -73,7 +82,12 @@ double RoadSegment::length() const
 
 double RoadSegment::widthAt(const double roadParamFromSegmentStart) const
 {
-	return mStartWidth + (mEndWidth-mStartWidth) * (roadParamFromSegmentStart/mLength);
+	return mStartWidth + (mEndWidth-mStartWidth)*(roadParamFromSegmentStart/mLength);
+}
+
+double RoadSegment::minWidth() const
+{
+	return qMin(mStartWidth,mEndWidth);
 }
 
 RoadSegment::roadLocation_t RoadSegment::endLocation( double paramFromSegmentStart ) const
@@ -150,4 +164,6 @@ void RoadSegment::initSettings()
 
 	if( !SettingsManager::instance()->contains("road/defaultWidthM") )
 		{ SettingsManager::instance()->setValue("road/defaultWidthM", 10.0); }
+	if( !SettingsManager::instance()->contains("road/widthVariationRatio") )
+		{ SettingsManager::instance()->setValue("road/widthVariationRatio", 0.3); }
 }

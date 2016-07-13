@@ -13,7 +13,7 @@ RoadObstacle::RoadObstacle(const double roadparam, const double normalPosition, 
 
 	if( mNormalPos == 0.0 )
 	{
-		//mNormalPos = RandGen::instance()->generateF( -1.0, 1.0 );
+		mNormalPos = RandGen::instance()->generateF( -1.0, 1.0 );
 	}
 
 	if( mSize == 0.0 )

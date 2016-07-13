@@ -22,7 +22,7 @@ public:
 		}
 	};
 
-	RoadSegment(roadLocation_t startLocation);
+	RoadSegment(roadLocation_t startLocation, const double startWidth = 0.0);
 	/// constructor for copying another segment with modified parameters.
 	RoadSegment(long int segmentId, roadLocation_t startRoadLocation, double curvature, double length, double startWidth, double endWidth);
 	RoadSegment( const RoadSegment &other );
@@ -55,6 +55,9 @@ public:
 	/** Get segment width at given point.
 	 *  return The width in meters.*/
 	double widthAt( const double metersFromSegmentStart ) const;
+
+	/// Get minimum width of segment.
+	double minWidth() const;
 
 	roadLocation_t startLocation() const
 		{ return mStartLoc; }

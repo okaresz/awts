@@ -68,11 +68,19 @@ public:
 	double acceleration() const
 		{ return mAcceleration; }
 
+	/// Get maximum possible acceleration allowed for the car to stay on road.
+	double maxAcceleration() const;
+
 	/** Return maximum possible tangential acceleration, considering currentCentripetalAcc as well.
 	 *  The algorithm also takes into account the reduced possible tangential acceleration
 	 *  due to the weight distribution on the driven wheels, which plays a role only when accelerating. Braking uses all 4 wheels.
-	 * @return Max possible tangential acceleration: first value is the acceleration, second is the deceleration/braking.*/
+	 * @return Max possible tangential acceleration values (accel/decel).*/
 	accelDecelPair_t maxTangentialAcceleration(const double currentCentripetalAcc) const;
+
+	/** Get maximum wheel angle so the car won't slip considering current acceleration.*/
+	double maxWheelAngleAtCurrentAcceleration() const;
+	/** Get maximum wheel angle so the car won't slip considering given tangent acceleration.*/
+	double maxWheelAngleAtCurrentAcceleration(double tangentAcc) const;
 
 	/** Get minimum turning radius.
 	 *	Calculated using Ackermann steering geometry, for the inner wheels, avg of front and back wheel turn radius + carWidth / 2.*/
@@ -87,14 +95,11 @@ public:
 	 *  @return The turn curvature. If given angle was < 0, this will be negative as well.*/
 	double turnCurvatureAtWheelAngle( double angleRad ) const;
 
-	/// Set wheelAngle (left turns are negative!).
-	void steer(double wheelAngleRad);
-
 	/// Get current turn curvature (left turns are negative!).
 	double turnCurvature() const;
 
 	/// Get wheel angle according to the given turnCurvature (signed, negative means left turn).
-	double wheelAngleAtTurnCurvature(double turnCurvature, bool boundByCarMaxWheelAngle = true);
+	double wheelAngleAtTurnCurvature(double turnCurvature, bool boundByCarMaxWheelAngle = true) const;
 	/// Set wheel angle according to the given turnCurvature (signed, negative means left turn).
 	void steerForTurnCurvature(double turnCurvature);
 
@@ -112,6 +117,18 @@ signals:
 
 public slots:
 	void simUpdate(const quint64 simTime);
+
+	/// Set wheelAngle in radians (left turns are negative!).
+	void steer(double wheelAngleRad);
+
+	/// Set wheelAngle in degrees (left turns are negative!).
+	void steerDeg(double wheelAngleDeg);
+
+	void setFrictionCoeffStatic(double val)
+	{
+		if( val > 0.0 )
+			{ mFrictionCoeffStatic = val; }
+	}
 
 private:
 	// properties

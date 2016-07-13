@@ -95,12 +95,22 @@ void Simulator::simUpdate()
 
 void Simulator::onCarTractionLost(double atTravel)
 {
-	Q_UNUSED(atTravel);
+	emit carTractionLost(atTravel);
 	stop();
 }
 
 void Simulator::onCarCrashed(double atTravel)
 {
-	Q_UNUSED(atTravel);
+	emit carCrashed(atTravel);
 	stop();
+}
+
+void Simulator::onCarUnavoidableTractionLossDetected(double atTravel)
+{
+	emit carUnavoidableTractionLossDetected(atTravel);
+}
+
+void Simulator::onCarUnavoidableCrashDetected(double atTravel)
+{
+	emit carUnavoidableCrashDetected(atTravel);
 }

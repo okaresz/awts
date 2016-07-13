@@ -21,8 +21,8 @@ public:
 		double heading;	///< Heading angle, 0 being car is pointing "upwards".
 	};
 
-	const Car *car() const
-		{ return &mCar; }
+	Car *car() const
+		{ return (Car*)&mCar; }
 
 	CarDriver *carDriver() const
 		{ return (CarDriver*)&mDriver; }
@@ -32,6 +32,11 @@ public:
 signals:
 	void simUpdated();
 	void simRunStateChanged(bool running);
+
+	void carTractionLost(double atTravel);
+	void carUnavoidableTractionLossDetected(double atTravel);
+	void carUnavoidableCrashDetected(double atTravel);
+	void carCrashed(double atTravel);
 
 public slots:
 	/** Start simulation.
@@ -52,6 +57,8 @@ public slots:
 
 	void onCarTractionLost(double atTravel);
 	void onCarCrashed(double atTravel);
+	void onCarUnavoidableTractionLossDetected(double atTravel);
+	void onCarUnavoidableCrashDetected(double atTravel);
 
 	carPositionOnRoad_t carPositionOnRoad() const
 		{ return mCarPosOnRoad; }

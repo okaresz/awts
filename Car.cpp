@@ -24,7 +24,7 @@ Car::Car(QObject *parent) : QObject(parent),
 		{ mAccelLimitMpss = SettingsManager::instance()->value("car/maxAccelerationMpss").toDouble(); }
 
 	if( !SettingsManager::instance()->contains("car/frictionCoeff") )
-		{ SettingsManager::instance()->setValue("car/frictionCoeff", 0.2); }
+		{ SettingsManager::instance()->setValue("car/frictionCoeff", mFrictionCoeffStatic); }
 	else
 		{ mFrictionCoeffStatic = SettingsManager::instance()->value("car/frictionCoeff").toDouble(); }
 
@@ -51,19 +51,42 @@ void Car::decelerate(float decelerateMpss)
 	mAcceleration = -qBound(0.0,(double)qAbs(decelerateMpss),mAccelLimitMpss);
 }
 
+double Car::maxAcceleration() const
+{
+	return mFrictionCoeffStatic * 9.81;
+}
+
 Car::accelDecelPair_t Car::maxTangentialAcceleration(const double currentCentripetalAcc) const
 {
-	double maxAccelAllowedByFriction = mFrictionCoeffStatic * 9.81;
+	double maxAccelAllowedByFriction = maxAcceleration();
 	double maxTangentialAccel = 0;
 	if( pow(maxAccelAllowedByFriction,2) > pow(currentCentripetalAcc,2) )
 	{
 		maxTangentialAccel = sqrt( pow(maxAccelAllowedByFriction,2) - pow(currentCentripetalAcc,2) );
 	}
-	double maxPossibleTangentialAccel = mFrictionCoeffStatic * 9.81 * mWeightRatioOnDrivenWheels;
+	double maxPossibleTangentialAccel = maxAcceleration() * mWeightRatioOnDrivenWheels;
 	accelDecelPair_t accDec;
 	accDec.acceleration = qMin(maxTangentialAccel,maxPossibleTangentialAccel);
 	accDec.deceleration = maxTangentialAccel; // braking is not affected by weight distribution (in this model..)
 	return accDec;
+}
+
+double Car::maxWheelAngleAtCurrentAcceleration() const
+{
+	return maxWheelAngleAtCurrentAcceleration(mAcceleration);
+}
+
+double Car::maxWheelAngleAtCurrentAcceleration(double tangentAcc) const
+{
+	double maxAccelAllowedByFriction = maxAcceleration();
+	double maxCentripAcc = 0;
+	if( pow(maxAccelAllowedByFriction,2) > pow(tangentAcc,2) )
+	{
+		maxCentripAcc = sqrt( pow(maxAccelAllowedByFriction,2) - pow(tangentAcc,2) );
+		double minRadius = pow(mSpeed,2)/maxCentripAcc;
+		return wheelAngleAtTurnCurvature(1/minRadius);
+	}
+	else return 0.0;
 }
 
 double Car::minTurnRadius() const
@@ -100,12 +123,17 @@ void Car::steer(double wheelAngleRad)
 	mWheelAngle = wheelAngleRad;
 }
 
+void Car::steerDeg(double wheelAngleDeg)
+{
+	steer(wheelAngleDeg/180.0*M_PI);
+}
+
 double Car::turnCurvature() const
 {
 	return turnCurvatureAtWheelAngle(mWheelAngle);
 }
 
-double Car::wheelAngleAtTurnCurvature(double turnCurvature, bool boundByCarMaxWheelAngle)
+double Car::wheelAngleAtTurnCurvature(double turnCurvature, bool boundByCarMaxWheelAngle) const
 {
 	if( turnCurvature == 0.0 )
 		{ return 0.0; }
